@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { eq } from "drizzle-orm";
+import puppeteer, { type Browser } from "puppeteer";
 
 import { decryptText } from "@/lib/auth/crypto";
 import { getWorkerDb, type WorkerDb } from "@/lib/db/workerClient";
@@ -12,10 +13,22 @@ import { scrapeAndSyncStudent } from "@/lib/scraper/scrapeAndSync";
  * scrape_jobs queue (no Redis/RabbitMQ in this stack) and processes jobs one
  * at a time.
  *
+ * Keeps a single Chromium instance alive across jobs (one `newPage()` per
+ * job, not one `launch()` per job) — browser boot is the most expensive part
+ * of each scrape, so reusing it is the biggest win available here.
+ *
  * Run alongside `npm run dev` with `npm run worker`.
  */
 
 const POLL_INTERVAL_MS = 3000;
+
+async function getOrLaunchBrowser(current: Browser | null): Promise<Browser> {
+  if (current && current.connected) return current;
+  return puppeteer.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+}
 
 async function claimNextJob(db: WorkerDb) {
   return db.transaction(async (tx) => {
@@ -38,7 +51,7 @@ async function claimNextJob(db: WorkerDb) {
   });
 }
 
-async function processJob(db: WorkerDb, job: Awaited<ReturnType<typeof claimNextJob>>) {
+async function processJob(db: WorkerDb, browser: Browser, job: Awaited<ReturnType<typeof claimNextJob>>) {
   if (!job) return;
 
   console.log(`[scraper-worker] processing job ${job.id} (${job.trigger}) for ${job.usn}`);
@@ -52,7 +65,7 @@ async function processJob(db: WorkerDb, job: Awaited<ReturnType<typeof claimNext
       throw new Error("Failed to decrypt PIN for scrape job.");
     }
 
-    const result = await scrapeAndSyncStudent(db, job.usn, job.dob, job.authType, plainPin);
+    const result = await scrapeAndSyncStudent(db, job.usn, job.dob, job.authType, plainPin, browser);
 
     await db
       .update(scrapeJobs)
@@ -81,6 +94,7 @@ async function processJob(db: WorkerDb, job: Awaited<ReturnType<typeof claimNext
 async function main() {
   const db = getWorkerDb();
   let running = true;
+  let browser: Browser | null = null;
 
   const shutdown = () => {
     console.log("[scraper-worker] shutting down...");
@@ -91,13 +105,20 @@ async function main() {
 
   console.log("[scraper-worker] started, polling scrape_jobs every %dms", POLL_INTERVAL_MS);
 
-  while (running) {
-    const job = await claimNextJob(db);
-    if (job) {
-      await processJob(db, job);
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  try {
+    while (running) {
+      const job = await claimNextJob(db);
+      if (job) {
+        // Launched lazily (not before the loop) so an idle worker never pays Chromium's
+        // boot cost, and relaunched automatically if a previous job left it disconnected.
+        browser = await getOrLaunchBrowser(browser);
+        await processJob(db, browser, job);
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      }
     }
+  } finally {
+    if (browser) await browser.close().catch(() => {});
   }
 }
 

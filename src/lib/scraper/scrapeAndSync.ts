@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { Browser } from "puppeteer";
 
 import { encryptText } from "@/lib/auth/crypto";
 import { students } from "@/lib/db/schema";
@@ -51,10 +52,12 @@ export async function scrapeAndSyncStudent(
   dob: string,
   authType: string,
   plainPin: string,
+  /** The worker's long-lived browser, reused across jobs instead of relaunching Chromium per job. */
+  sharedBrowser?: Browser,
 ): Promise<ScrapeAndSyncResult> {
   const { day, month, year } = parseDobParts(dob);
 
-  const scrapedData = await getCompleteStudentData(usn, day, month, year, authType, plainPin);
+  const scrapedData = await getCompleteStudentData(usn, day, month, year, authType, plainPin, sharedBrowser);
   const details = parseAndProcessData(scrapedData);
 
   await db

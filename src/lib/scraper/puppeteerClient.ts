@@ -1,6 +1,8 @@
 import axios from "axios";
 import https from "https";
-import puppeteer from "puppeteer";
+import puppeteer, { type Browser } from "puppeteer";
+
+import { mapWithConcurrency } from "./concurrency";
 
 /**
  * Ported near-verbatim from MSR-Insight's
@@ -30,6 +32,12 @@ const resolveParentsUrl = (href: string | undefined): string => {
   return `https://parents.msrit.edu/newparents/${h.replace(/^\.\//, "")}`;
 };
 
+/** Skip these while logging in — the login/dashboard HTML is all we parse, none of the rendered chrome matters. */
+const BLOCKED_RESOURCE_TYPES = new Set(["image", "stylesheet", "font", "media"]);
+
+/** Max simultaneous HTTP requests against the portal for attendance/CIE/exam/placement pages. */
+const FETCH_CONCURRENCY = 6;
+
 export const getCompleteStudentData = async (
   usn: string,
   day: string,
@@ -37,16 +45,30 @@ export const getCompleteStudentData = async (
   year: string,
   authType: string | undefined,
   last4Digits: string | undefined,
+  /** Reuse a long-lived browser (the worker keeps one alive across jobs) instead of launching a fresh one per call. */
+  sharedBrowser?: Browser,
 ): Promise<ScrapedData> => {
-  let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
+  const ownsBrowser = !sharedBrowser;
+  let browser: Browser | null = sharedBrowser ?? null;
+  let page: Awaited<ReturnType<Browser["newPage"]>> | null = null;
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
+    if (!browser) {
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      });
+    }
 
-    const page = await browser.newPage();
+    page = await browser.newPage();
     await page.setDefaultNavigationTimeout(60000);
+    await page.setRequestInterception(true);
+    page.on("request", (req) => {
+      if (BLOCKED_RESOURCE_TYPES.has(req.resourceType())) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
     await page.goto("https://parents.msrit.edu/newparents/", {
       waitUntil: "domcontentloaded",
       timeout: 60000,
@@ -163,8 +185,14 @@ export const getCompleteStudentData = async (
     const cookies = await page.cookies();
     const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 
-    await browser.close();
-    browser = null;
+    // Puppeteer's job is done — the rest is light HTTP+cheerio, no browser needed.
+    // Close just this page; a shared browser stays alive for the worker's next job.
+    await page.close();
+    page = null;
+    if (ownsBrowser) {
+      await browser.close();
+      browser = null;
+    }
 
     const cheerio = await import("cheerio");
     const { extractCourseRowsFromDashboard } = await import("./htmlParser");
@@ -210,17 +238,15 @@ export const getCompleteStudentData = async (
     });
 
     const uniqueUrls = [...urlToTargets.keys()];
-    const fetched = await Promise.all(
-      uniqueUrls.map(async (url) => {
-        try {
-          await new Promise((r) => setTimeout(r, Math.random() * 400 + 100));
-          const resp = await axiosInstance.get<string>(url);
-          return { url, html: resp.data };
-        } catch {
-          return { url, html: "" };
-        }
-      }),
-    );
+    const fetched = await mapWithConcurrency(uniqueUrls, FETCH_CONCURRENCY, async (url) => {
+      try {
+        await new Promise((r) => setTimeout(r, Math.random() * 400 + 100));
+        const resp = await axiosInstance.get<string>(url);
+        return { url, html: resp.data };
+      } catch {
+        return { url, html: "" };
+      }
+    });
     const htmlByUrl = new Map(fetched.map((f) => [f.url, f.html]));
 
     for (const [url, targets] of urlToTargets) {
@@ -238,6 +264,7 @@ export const getCompleteStudentData = async (
 
     return scrapedData;
   } finally {
-    if (browser) await browser.close();
+    if (page) await page.close().catch(() => {});
+    if (ownsBrowser && browser) await browser.close().catch(() => {});
   }
 };
