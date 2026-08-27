@@ -38,11 +38,19 @@ export interface ExamHistoryEntry {
   courses: ExamHistoryCourse[];
 }
 
+export interface RawPlacementEvent {
+  title?: string;
+  textContent?: string;
+  details?: string[];
+  actionLink?: string;
+  [key: string]: unknown;
+}
+
 export interface PlacementData {
-  profile?: unknown;
-  eligibilityEvents?: unknown[];
-  inProgressEvents?: unknown[];
-  completedEvents?: unknown[];
+  profile?: Record<string, string>;
+  eligibilityEvents?: RawPlacementEvent[];
+  inProgressEvents?: RawPlacementEvent[];
+  completedEvents?: RawPlacementEvent[];
   [key: string]: unknown;
 }
 
