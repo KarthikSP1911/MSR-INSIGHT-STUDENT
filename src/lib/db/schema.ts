@@ -8,6 +8,8 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import type { StudentDetails } from "@/lib/studentDetails";
+
 /**
  * A student row. `details` mirrors MSR-Insight's normalized scrape shape:
  * { usn, name, class_details, cgpa, last_updated, current_year,
@@ -24,7 +26,7 @@ export const students = pgTable("students", {
   currentYear: integer("current_year").notNull().default(0),
   authType: text("auth_type"), // "Father's Mobile" | "Mother's Mobile" | "ABC ID"
   encryptedPin: text("encrypted_pin"), // AES-256-GCM "iv:authTag:cipher" hex
-  details: jsonb("details").notNull().default({}),
+  details: jsonb("details").$type<StudentDetails>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
