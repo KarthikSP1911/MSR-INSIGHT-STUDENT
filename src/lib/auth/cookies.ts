@@ -13,6 +13,9 @@ export async function setSessionCookie(token: string): Promise<void> {
     sameSite: "strict",
     path: "/",
     maxAge: THIRTY_DAYS_SECONDS,
+    // Some older mobile WebViews only honor `Expires`, not `Max-Age` — set both so the
+    // 30-day session reliably persists across mobile browsers, not just modern ones.
+    expires: new Date(Date.now() + THIRTY_DAYS_SECONDS * 1000),
   });
 }
 
