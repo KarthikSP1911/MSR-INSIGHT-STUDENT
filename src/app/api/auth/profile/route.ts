@@ -23,6 +23,6 @@ export async function GET() {
     return NextResponse.json({ success: false, message: "Student not found" }, { status: 404 });
   }
 
-  const { encryptedPin: _encryptedPin, ...safeStudent } = student;
+  const { encryptedPin: _encryptedPin, portalSessionCookie: _portalSessionCookie, ...safeStudent } = student;
   return NextResponse.json({ success: true, data: safeStudent });
 }

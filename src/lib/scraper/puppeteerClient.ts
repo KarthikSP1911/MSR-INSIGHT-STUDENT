@@ -33,7 +33,12 @@ export interface ScrapeTimings {
 export interface CompleteStudentData {
   data: ScrapedData;
   timings: ScrapeTimings;
+  /** The portal session cookie used for this scrape's sub-page fetches — persisted by the caller for a future warm resync. */
+  sessionCookie: string;
 }
+
+/** Thrown by `tryWarmResync` when the stored session cookie is no longer accepted by the portal — callers should fall back to a full Puppeteer login, not fail the job. */
+export class WarmSessionInvalidError extends Error {}
 
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
@@ -109,6 +114,149 @@ async function fetchWithBackoff(instance: ReturnType<typeof axios.create>, url: 
       throw err;
     }
   }
+}
+
+/**
+ * Shared by both the full Puppeteer login path and the warm-resync (cookie-reuse) path: given
+ * dashboard HTML and a session cookie already known to be valid, fetches the attendance/CIE/
+ * exam sub-pages and assembles the final result + timings.
+ */
+async function buildResultFromDashboard(
+  dashboardHtml: string,
+  cookieString: string,
+  scope: "attendance" | "full",
+  requestCountSoFar: number,
+  browserMs: number,
+  loginMs: number,
+  dashboardMs: number,
+): Promise<CompleteStudentData> {
+  const scrapedData: ScrapedData = { dashboard: dashboardHtml, attendance: {}, cie: {} };
+
+  const cheerio = await import("cheerio");
+  const { extractCourseRowsFromDashboard } = await import("./htmlParser");
+  const $dash = cheerio.load(dashboardHtml);
+  const courseRows = extractCourseRowsFromDashboard($dash);
+
+  const urlToTargets = new Map<string, { courseCode: string; type: string }[]>();
+  const pushTarget = (href: string, courseCode: string, type: string) => {
+    const url = resolveParentsUrl(href);
+    if (!url) return;
+    if (!urlToTargets.has(url)) urlToTargets.set(url, []);
+    urlToTargets.get(url)!.push({ courseCode, type });
+  };
+  for (const row of courseRows) {
+    if (row.attLink) pushTarget(row.attLink, row.code, "attendance");
+    // CIE doesn't change between logins — an `attendance`-scope job skips it, and the
+    // caller (scrapeAndSync.ts) merges the prior scrape's CIE data back in.
+    if (row.cieLink && scope === "full") pushTarget(row.cieLink, row.code, "cie");
+  }
+
+  if (scope === "full") {
+    const examsUrl = "https://parents.msrit.edu/newparents/index.php?option=com_history&task=getResult";
+    urlToTargets.set(examsUrl, [{ courseCode: "EXAMS", type: "exams" }]);
+  }
+
+  // Placement pages (com_placement: eligibility/status/results/profile) are deliberately
+  // never added to urlToTargets — the placement section is out of scope for this scraper
+  // entirely, not just unparsed. Nothing under it is fetched, stored, or processed.
+
+  const axiosInstance = axios.create({
+    timeout: 10000,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+      Cookie: cookieString,
+    },
+    httpsAgent: keepAliveAgent,
+  });
+
+  const uniqueUrls = [...urlToTargets.keys()];
+  const fetchDurationsMs: number[] = [];
+  const fetched = await mapWithConcurrency(uniqueUrls, FETCH_CONCURRENCY, async (url) => {
+    const tFetchStart = Date.now();
+    try {
+      const html = await fetchWithBackoff(axiosInstance, url);
+      fetchDurationsMs.push(Date.now() - tFetchStart);
+      return { url, html };
+    } catch {
+      fetchDurationsMs.push(Date.now() - tFetchStart);
+      return { url, html: "" };
+    }
+  });
+  const htmlByUrl = new Map(fetched.map((f) => [f.url, f.html]));
+
+  for (const [url, targets] of urlToTargets) {
+    const html = htmlByUrl.get(url) ?? "";
+    for (const t of targets) {
+      if (t.type === "exams") scrapedData.exams = html;
+      else if (t.type === "attendance") scrapedData.attendance[t.courseCode] = html;
+      else if (t.type === "cie") scrapedData.cie[t.courseCode] = html;
+    }
+  }
+
+  const requestCount = requestCountSoFar + uniqueUrls.length;
+  const sortedFetchMs = [...fetchDurationsMs].sort((a, b) => a - b);
+  const bytesDownloaded =
+    Buffer.byteLength(dashboardHtml, "utf8") + fetched.reduce((sum, f) => sum + Buffer.byteLength(f.html, "utf8"), 0);
+
+  const timings: ScrapeTimings = {
+    browserMs,
+    loginMs,
+    dashboardMs,
+    fetchMs: {
+      p50: percentile(sortedFetchMs, 0.5),
+      max: sortedFetchMs.length ? sortedFetchMs[sortedFetchMs.length - 1] : 0,
+      total: fetchDurationsMs.reduce((a, b) => a + b, 0),
+    },
+    requestCount,
+    bytesDownloaded,
+  };
+
+  return { data: scrapedData, timings, sessionCookie: cookieString };
+}
+
+/**
+ * Attempts a scrape using a previously-persisted session cookie, with no browser involved at
+ * all — a plain HTTP GET of the dashboard, reusing whatever session the portal still honours.
+ *
+ * NOTE: the portal's login cookie (confirmed via live network capture) carries no Expires/
+ * Max-Age — it's a plain session cookie whose real lifetime is an unknown, server-side idle
+ * timeout. This function can't know in advance whether the cookie is still good, so it always
+ * just tries the request and reads the result: dashboard markers present → valid, redirected
+ * to (or rendered) the login page → `WarmSessionInvalidError`, which the caller
+ * (scrapeAndSync.ts) catches and falls back to a full Puppeteer login for. That fallback is
+ * the correctness backstop this whole path leans on.
+ */
+export async function tryWarmResync(cookieString: string, scope: "attendance" | "full"): Promise<CompleteStudentData> {
+  const tStart = Date.now();
+  const axiosInstance = axios.create({
+    timeout: 10000,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+      Cookie: cookieString,
+    },
+    httpsAgent: keepAliveAgent,
+    maxRedirects: 0,
+    validateStatus: () => true,
+  });
+
+  let content: string;
+  let status: number;
+  try {
+    const resp = await axiosInstance.get<string>("https://parents.msrit.edu/newparents/index.php");
+    content = typeof resp.data === "string" ? resp.data : "";
+    status = resp.status;
+  } catch {
+    throw new WarmSessionInvalidError("Warm-resync request to the portal failed");
+  }
+  const dashboardMs = Date.now() - tStart;
+
+  const isRedirect = status >= 300 && status < 400;
+  const hasLogout = content.toUpperCase().includes("LOGOUT") && !hasLoginErrorText(content);
+  if (isRedirect || !hasLogout || hasLoginErrorText(content)) {
+    throw new WarmSessionInvalidError("Stored portal session is no longer valid");
+  }
+
+  return buildResultFromDashboard(content, cookieString, scope, /* requestCountSoFar */ 1, /* browserMs */ 0, /* loginMs */ 0, dashboardMs);
 }
 
 export const getCompleteStudentData = async (
@@ -271,7 +419,6 @@ export const getCompleteStudentData = async (
       throw new Error("Invalid portal credentials or 4-digit PIN. Please verify your USN, Date of Birth, and PIN.");
     }
 
-    const scrapedData: ScrapedData = { dashboard: content, attendance: {}, cie: {} };
     const cookies = await page.cookies();
     const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 
@@ -284,87 +431,7 @@ export const getCompleteStudentData = async (
       browser = null;
     }
 
-    const cheerio = await import("cheerio");
-    const { extractCourseRowsFromDashboard } = await import("./htmlParser");
-    const $dash = cheerio.load(content);
-    const courseRows = extractCourseRowsFromDashboard($dash);
-
-    const urlToTargets = new Map<string, { courseCode: string; type: string }[]>();
-    const pushTarget = (href: string, courseCode: string, type: string) => {
-      const url = resolveParentsUrl(href);
-      if (!url) return;
-      if (!urlToTargets.has(url)) urlToTargets.set(url, []);
-      urlToTargets.get(url)!.push({ courseCode, type });
-    };
-    for (const row of courseRows) {
-      if (row.attLink) pushTarget(row.attLink, row.code, "attendance");
-      // CIE doesn't change between logins — an `attendance`-scope job skips it, and the
-      // caller (scrapeAndSync.ts) merges the prior scrape's CIE data back in.
-      if (row.cieLink && scope === "full") pushTarget(row.cieLink, row.code, "cie");
-    }
-
-    if (scope === "full") {
-      const examsUrl = "https://parents.msrit.edu/newparents/index.php?option=com_history&task=getResult";
-      urlToTargets.set(examsUrl, [{ courseCode: "EXAMS", type: "exams" }]);
-    }
-
-    // Placement pages (com_placement: eligibility/status/results/profile) are deliberately
-    // never added to urlToTargets — the placement section is out of scope for this scraper
-    // entirely, not just unparsed. Nothing under it is fetched, stored, or processed.
-
-    const axiosInstance = axios.create({
-      timeout: 10000,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        Cookie: cookieString,
-      },
-      httpsAgent: keepAliveAgent,
-    });
-
-    const uniqueUrls = [...urlToTargets.keys()];
-    const fetchDurationsMs: number[] = [];
-    const fetched = await mapWithConcurrency(uniqueUrls, FETCH_CONCURRENCY, async (url) => {
-      const tFetchStart = Date.now();
-      try {
-        const html = await fetchWithBackoff(axiosInstance, url);
-        fetchDurationsMs.push(Date.now() - tFetchStart);
-        return { url, html };
-      } catch {
-        fetchDurationsMs.push(Date.now() - tFetchStart);
-        return { url, html: "" };
-      }
-    });
-    const htmlByUrl = new Map(fetched.map((f) => [f.url, f.html]));
-
-    for (const [url, targets] of urlToTargets) {
-      const html = htmlByUrl.get(url) ?? "";
-      for (const t of targets) {
-        if (t.type === "exams") scrapedData.exams = html;
-        else if (t.type === "attendance") scrapedData.attendance[t.courseCode] = html;
-        else if (t.type === "cie") scrapedData.cie[t.courseCode] = html;
-      }
-    }
-
-    requestCount += uniqueUrls.length;
-    const sortedFetchMs = [...fetchDurationsMs].sort((a, b) => a - b);
-    const bytesDownloaded =
-      Buffer.byteLength(content, "utf8") +
-      fetched.reduce((sum, f) => sum + Buffer.byteLength(f.html, "utf8"), 0);
-
-    const timings: ScrapeTimings = {
-      browserMs,
-      loginMs,
-      dashboardMs,
-      fetchMs: {
-        p50: percentile(sortedFetchMs, 0.5),
-        max: sortedFetchMs.length ? sortedFetchMs[sortedFetchMs.length - 1] : 0,
-        total: fetchDurationsMs.reduce((a, b) => a + b, 0),
-      },
-      requestCount,
-      bytesDownloaded,
-    };
-
-    return { data: scrapedData, timings };
+    return buildResultFromDashboard(content, cookieString, scope, requestCount, browserMs, loginMs, dashboardMs);
   } finally {
     if (page) await page.close().catch(() => {});
     if (ownsBrowser && browser) await browser.close().catch(() => {});

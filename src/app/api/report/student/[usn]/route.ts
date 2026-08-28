@@ -30,7 +30,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ usn
   }
 
   if (hasScrapedData(student.details)) {
-    const { encryptedPin: _encryptedPin, ...safeStudent } = student;
+    const { encryptedPin: _encryptedPin, portalSessionCookie: _portalSessionCookie, ...safeStudent } = student;
     return NextResponse.json({ success: true, source: "database", data: safeStudent });
   }
 
