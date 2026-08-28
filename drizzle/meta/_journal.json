@@ -15,6 +15,13 @@
       "when": 1787915000339,
       "tag": "0001_abandoned_gorilla_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787918041929,
+      "tag": "0002_coalesce_active_scrape_jobs",
+      "breakpoints": true
     }
   ]
 }

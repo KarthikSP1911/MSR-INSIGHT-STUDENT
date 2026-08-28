@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -5,6 +6,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -71,6 +73,12 @@ export const scrapeJobs = pgTable(
   (table) => [
     index("scrape_jobs_status_created_at_idx").on(table.status, table.createdAt),
     index("scrape_jobs_usn_status_idx").on(table.usn, table.status),
+    // Job coalescing: at most one pending/running job per USN, so a burst of
+    // logins/refreshes for the same student reuses the in-flight job instead of
+    // queuing duplicates the worker would redundantly scrape one after another.
+    uniqueIndex("scrape_jobs_active_usn_idx")
+      .on(table.usn)
+      .where(sql`${table.status} IN ('pending', 'running')`),
   ],
 );
 

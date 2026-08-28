@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "scrape_jobs_active_usn_idx" ON "scrape_jobs" USING btree ("usn") WHERE "scrape_jobs"."status" IN ('pending', 'running');

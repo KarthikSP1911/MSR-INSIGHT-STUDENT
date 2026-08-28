@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { eq } from "drizzle-orm";
+import { Client } from "pg";
 import puppeteer, { type Browser } from "puppeteer";
 
 import { decryptText } from "@/lib/auth/crypto";
@@ -11,17 +12,23 @@ import { PUPPETEER_LAUNCH_ARGS } from "@/lib/scraper/puppeteerClient";
 /**
  * Standalone scraper worker. Runs Puppeteer against the college portal
  * outside the Next.js request/response cycle — polls the Postgres-backed
- * scrape_jobs queue (no Redis/RabbitMQ in this stack) and processes jobs one
- * at a time.
+ * scrape_jobs queue (no Redis/RabbitMQ in this stack) and processes jobs
+ * across a small number of concurrent slots, each claiming and scraping one
+ * job at a time.
  *
  * Keeps a single Chromium instance alive across jobs (one `newPage()` per
  * job, not one `launch()` per job) — browser boot is the most expensive part
- * of each scrape, so reusing it is the biggest win available here.
+ * of each scrape, so reusing it is the biggest win available here. All
+ * concurrent slots share that one browser instance (Puppeteer supports
+ * multiple concurrent pages on one browser natively).
  *
  * Run alongside `npm run dev` with `npm run worker`.
  */
 
+/** Safety-net poll interval — a `LISTEN`/`NOTIFY` wake-up (below) normally fires long before this elapses. */
 const POLL_INTERVAL_MS = 3000;
+/** Concurrent claim+scrape slots; `claimNextJob`'s `FOR UPDATE SKIP LOCKED` already makes this safe. */
+const CONCURRENT_SLOTS = Number(process.env.SCRAPER_WORKER_CONCURRENCY) || 3;
 
 // A scrape's own internal timeouts (nav/selector waits in puppeteerClient.ts) sum to well
 // under this in the worst case, so anything past it means Chromium itself has wedged rather
@@ -32,13 +39,56 @@ const JOB_TIMEOUT_MS = 4 * 60 * 1000;
 // leave one of those calls (and the job awaiting it) hanging indefinitely.
 const PROTOCOL_TIMEOUT_MS = 2 * 60 * 1000;
 
-async function getOrLaunchBrowser(current: Browser | null): Promise<Browser> {
-  if (current && current.connected) return current;
-  return puppeteer.launch({
-    headless: true,
-    args: PUPPETEER_LAUNCH_ARGS,
-    protocolTimeout: PROTOCOL_TIMEOUT_MS,
+let sharedBrowser: Browser | null = null;
+let browserLaunch: Promise<Browser> | null = null;
+
+/** Single-flight browser launch/reuse shared by every concurrent slot — concurrent callers await the same in-flight launch instead of racing to start two. */
+async function getOrLaunchBrowser(): Promise<Browser> {
+  if (sharedBrowser && sharedBrowser.connected) return sharedBrowser;
+  if (!browserLaunch) {
+    browserLaunch = puppeteer
+      .launch({ headless: true, args: PUPPETEER_LAUNCH_ARGS, protocolTimeout: PROTOCOL_TIMEOUT_MS })
+      .then((b) => {
+        sharedBrowser = b;
+        browserLaunch = null;
+        return b;
+      });
+  }
+  return browserLaunch;
+}
+
+/** `browser.close()` talks to the same wedged process we're trying to escape, so it would just hang too — kill it directly and let the next slot's `getOrLaunchBrowser()` start a clean one. */
+function discardWedgedBrowser(browser: Browser) {
+  if (sharedBrowser === browser) sharedBrowser = null;
+  browser.process()?.kill("SIGKILL");
+}
+
+let running = true;
+let wakeResolvers: Array<() => void> = [];
+/** Woken early by `NOTIFY scrape_jobs` (see setupNotifyListener) or on shutdown; POLL_INTERVAL_MS is the safety-net ceiling. */
+function sleepOrWake(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const wake = () => {
+      clearTimeout(timer);
+      wakeResolvers = wakeResolvers.filter((r) => r !== wake);
+      resolve();
+    };
+    const timer = setTimeout(wake, ms);
+    wakeResolvers.push(wake);
   });
+}
+function wakeAllSlots() {
+  wakeResolvers.slice().forEach((r) => r());
+}
+
+/** Dedicated (non-pooled) connection for LISTEN — pg only delivers NOTIFY events on the exact connection that issued LISTEN, so this can't share the query Pool. */
+async function setupNotifyListener(): Promise<Client> {
+  const listenClient = new Client({ connectionString: process.env.DATABASE_URL });
+  await listenClient.connect();
+  await listenClient.query("LISTEN scrape_jobs");
+  listenClient.on("notification", () => wakeAllSlots());
+  listenClient.on("error", (err) => console.error("[scraper-worker] LISTEN connection error:", err));
+  return listenClient;
 }
 
 /** Races `promise` against a timeout without cancelling it — the loser's eventual settlement is still handled by this function's own `.then`, so it never becomes an unhandled rejection. */
@@ -146,14 +196,32 @@ async function recoverOrphanedJobs(db: WorkerDb) {
   }
 }
 
+/** One concurrent claim+scrape slot: claims a job, processes it, repeats — sleeping (subject to early wake-up) only when the queue is empty. */
+async function workerSlot(db: WorkerDb, slotId: number) {
+  while (running) {
+    const job = await claimNextJob(db);
+    if (job) {
+      // Launched lazily (not before the loop) so an idle worker never pays Chromium's
+      // boot cost, and relaunched automatically if a previous job left it disconnected.
+      const browser = await getOrLaunchBrowser();
+      const { browserWedged } = await processJob(db, browser, job);
+      if (browserWedged) {
+        console.error(`[scraper-worker] slot ${slotId}: browser appears wedged after a job timeout — force-killing it`);
+        discardWedgedBrowser(browser);
+      }
+    } else {
+      await sleepOrWake(POLL_INTERVAL_MS);
+    }
+  }
+}
+
 async function main() {
   const db = getWorkerDb();
-  let running = true;
-  let browser: Browser | null = null;
 
   const shutdown = () => {
     console.log("[scraper-worker] shutting down...");
     running = false;
+    wakeAllSlots();
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
@@ -167,30 +235,25 @@ async function main() {
 
   await recoverOrphanedJobs(db);
 
-  console.log("[scraper-worker] started, polling scrape_jobs every %dms", POLL_INTERVAL_MS);
+  let listenClient: Client | null = null;
+  try {
+    listenClient = await setupNotifyListener();
+  } catch (err) {
+    console.error("[scraper-worker] failed to set up LISTEN/NOTIFY — falling back to poll-only:", err);
+  }
+
+  console.log(
+    "[scraper-worker] started, %d concurrent slot(s), %dms poll as fallback%s",
+    CONCURRENT_SLOTS,
+    POLL_INTERVAL_MS,
+    listenClient ? " (LISTEN/NOTIFY active)" : "",
+  );
 
   try {
-    while (running) {
-      const job = await claimNextJob(db);
-      if (job) {
-        // Launched lazily (not before the loop) so an idle worker never pays Chromium's
-        // boot cost, and relaunched automatically if a previous job left it disconnected.
-        browser = await getOrLaunchBrowser(browser);
-        const { browserWedged } = await processJob(db, browser, job);
-        if (browserWedged) {
-          // browser.close() talks to the same wedged process we're trying to escape, so
-          // it would just hang too — kill it directly and let the next loop iteration's
-          // getOrLaunchBrowser() start a clean one.
-          console.error("[scraper-worker] browser appears wedged after a job timeout — force-killing it");
-          browser.process()?.kill("SIGKILL");
-          browser = null;
-        }
-      } else {
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-      }
-    }
+    await Promise.all(Array.from({ length: CONCURRENT_SLOTS }, (_, i) => workerSlot(db, i)));
   } finally {
-    if (browser) await browser.close().catch(() => {});
+    if (listenClient) await listenClient.end().catch(() => {});
+    if (sharedBrowser) await sharedBrowser.close().catch(() => {});
   }
 }
 
