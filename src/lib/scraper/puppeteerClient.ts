@@ -124,7 +124,7 @@ async function fetchWithBackoff(instance: ReturnType<typeof axios.create>, url: 
 async function buildResultFromDashboard(
   dashboardHtml: string,
   cookieString: string,
-  scope: "attendance" | "full",
+  scope: "recurring" | "full",
   requestCountSoFar: number,
   browserMs: number,
   loginMs: number,
@@ -146,12 +146,15 @@ async function buildResultFromDashboard(
   };
   for (const row of courseRows) {
     if (row.attLink) pushTarget(row.attLink, row.code, "attendance");
-    // CIE doesn't change between logins — an `attendance`-scope job skips it, and the
-    // caller (scrapeAndSync.ts) merges the prior scrape's CIE data back in.
-    if (row.cieLink && scope === "full") pushTarget(row.cieLink, row.code, "cie");
+    // CIE marks change throughout the semester (faculty post new test results), so fetch it
+    // every time regardless of scope — unlike exam history below, it's not safe to treat as
+    // "doesn't change between logins".
+    if (row.cieLink) pushTarget(row.cieLink, row.code, "cie");
   }
 
   if (scope === "full") {
+    // Exam history only updates once per exam cycle, so a `recurring`-scope job skips it and
+    // the caller (scrapeAndSync.ts) merges the prior scrape's exam history/CGPA back in.
     const examsUrl = "https://parents.msrit.edu/newparents/index.php?option=com_history&task=getResult";
     urlToTargets.set(examsUrl, [{ courseCode: "EXAMS", type: "exams" }]);
   }
@@ -226,7 +229,7 @@ async function buildResultFromDashboard(
  * (scrapeAndSync.ts) catches and falls back to a full Puppeteer login for. That fallback is
  * the correctness backstop this whole path leans on.
  */
-export async function tryWarmResync(cookieString: string, scope: "attendance" | "full"): Promise<CompleteStudentData> {
+export async function tryWarmResync(cookieString: string, scope: "recurring" | "full"): Promise<CompleteStudentData> {
   const tStart = Date.now();
   const axiosInstance = axios.create({
     timeout: 10000,
@@ -268,8 +271,8 @@ export const getCompleteStudentData = async (
   last4Digits: string | undefined,
   /** Reuse a long-lived browser (the worker keeps one alive across jobs) instead of launching a fresh one per call. */
   sharedBrowser?: Browser,
-  /** `attendance` skips CIE and exam-history fetches entirely (caller merges those back in from the prior scrape) — see scrapeAndSync.ts. */
-  scope: "attendance" | "full" = "full",
+  /** `recurring` skips only the exam-history fetch (caller merges it back in from the prior scrape); CIE is always fetched — see scrapeAndSync.ts. */
+  scope: "recurring" | "full" = "full",
 ): Promise<CompleteStudentData> => {
   const ownsBrowser = !sharedBrowser;
   let browser: Browser | null = sharedBrowser ?? null;

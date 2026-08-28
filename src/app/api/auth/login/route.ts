@@ -85,16 +85,17 @@ export async function POST(request: NextRequest) {
   // pre-this-app free-text variant ("mother", "mobile", ...) from before the login form's
   // fixed 3-value dropdown existed — see normalizeAuthType's own doc comment.
   //
-  // A login only needs fresh attendance — CIE/exam history don't change between logins, and
-  // are already on the existing row when there is one. A genuinely new student (no prior
-  // scrape to merge CIE/exam data back in from) still needs a full scrape.
+  // A login only needs fresh attendance + CIE — exam history is the one thing that doesn't
+  // change between logins (updated once per exam cycle, not throughout the semester like CIE
+  // marks) and is already on the existing row when there is one. A genuinely new student (no
+  // prior scrape to merge exam history back in from) still needs a full scrape.
   const jobId = await enqueueScrapeJob(db, {
     usn,
     dob,
     authType: normalizeAuthType(targetAuthType),
     plainPin: targetPin,
     trigger: "login",
-    scope: hasScrapedData(existing?.details) ? "attendance" : "full",
+    scope: hasScrapedData(existing?.details) ? "recurring" : "full",
   });
 
   const token = await signStudentToken(usn);

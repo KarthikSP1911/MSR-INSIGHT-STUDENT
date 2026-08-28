@@ -24,23 +24,17 @@ import { parseAndProcessData } from "./htmlParser";
 const WARM_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
 
 /**
- * An `attendance`-scope scrape never fetched CIE/exam-history HTML, so `fresh` has those
- * fields blank/defaulted — restore them from the previous scrape rather than persist a wipe.
- * New courses (not present in `previous`) legitimately have no CIE data yet, so they keep
- * whatever `fresh` computed (zero/empty), same as if the fetch had failed and returned "".
+ * A `recurring`-scope scrape never fetched the exam-history page, so `fresh.exam_history`/
+ * `fresh.cgpa` are blank/defaulted — restore them from the previous scrape rather than
+ * persist a wipe. CIE/attendance are always freshly fetched regardless of scope (CIE marks
+ * are posted throughout the semester, so they're never treated as "doesn't change between
+ * logins" — only exam history, which updates once per exam cycle, gets that treatment).
  */
-function mergeAttendanceOnlyScrape(fresh: StudentDetails, previous: StudentDetails | undefined): StudentDetails {
+function mergeRecurringScrape(fresh: StudentDetails, previous: StudentDetails | undefined): StudentDetails {
   if (!previous) return fresh;
-
-  const prevSubjectsByCode = new Map((previous.subjects ?? []).map((s) => [s.code, s]));
-  const subjects = (fresh.subjects ?? []).map((s) => {
-    const prev = prevSubjectsByCode.get(s.code);
-    return prev ? { ...s, marks: prev.marks, assessments: prev.assessments } : s;
-  });
 
   return {
     ...fresh,
-    subjects,
     exam_history: previous.exam_history ?? fresh.exam_history,
     cgpa: previous.cgpa ?? fresh.cgpa,
   };
@@ -93,7 +87,7 @@ export async function scrapeAndSyncStudent(
   plainPin: string,
   /** The worker's long-lived browser, reused across jobs instead of relaunching Chromium per job. */
   sharedBrowser?: Browser,
-  /** `attendance` skips CIE/exam-history fetches and merges them back in from the existing row; `full` re-fetches everything. */
+  /** `recurring` skips only the exam-history fetch and merges it back in from the existing row; `full` re-fetches everything, including exam history. */
   scope: ScrapeJobScope = "full",
 ): Promise<ScrapeAndSyncResult> {
   const { day, month, year } = parseDobParts(dob);
@@ -132,7 +126,7 @@ export async function scrapeAndSyncStudent(
   const parseMs = Date.now() - tParseStart;
 
   const tDbStart = Date.now();
-  const details = scope === "attendance" ? mergeAttendanceOnlyScrape(freshDetails, existing?.details) : freshDetails;
+  const details = scope === "recurring" ? mergeRecurringScrape(freshDetails, existing?.details) : freshDetails;
 
   await db
     .update(students)

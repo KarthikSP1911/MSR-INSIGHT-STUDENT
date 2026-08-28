@@ -54,11 +54,13 @@ export const scrapeJobStatuses = ["pending", "running", "success", "failed"] as 
 export type ScrapeJobStatus = (typeof scrapeJobStatuses)[number];
 
 /**
- * `attendance` fetches only the dashboard + per-course attendance pages (skips CIE and exam
- * history entirely), then merges the previous scrape's CIE/exam data back in — see
- * scrapeAndSync.ts. `full` fetches everything, same as the scraper's original behavior.
+ * `recurring` fetches the dashboard + per-course attendance + CIE pages, skipping only
+ * exam-history (the one thing that genuinely doesn't change between logins — it's only
+ * updated once per exam cycle, unlike CIE marks which faculty post throughout the semester),
+ * then merges the previous scrape's exam history/CGPA back in — see scrapeAndSync.ts. `full`
+ * fetches everything, same as the scraper's original behavior.
  */
-export const scrapeJobScopes = ["attendance", "full"] as const;
+export const scrapeJobScopes = ["recurring", "full"] as const;
 export type ScrapeJobScope = (typeof scrapeJobScopes)[number];
 
 /**
