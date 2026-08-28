@@ -238,3 +238,37 @@ p {
 .fade-in {
   animation: fadeIn 0.4s ease-out forwards;
 }
+
+/*
+ * LoadingScreen's positioning lives here (a real <link>-loaded stylesheet,
+ * present in the very first byte of SSR'd HTML) rather than in a
+ * component-local <style jsx> block. styled-jsx's CSS is injected
+ * client-side after hydration in this Next.js App Router + Turbopack setup,
+ * not flushed into the initial SSR payload — so on first paint the logo
+ * would briefly render unstyled (normal document flow, top-left of <body>)
+ * before snapping into its fixed, centered position once JS catches up.
+ */
+.fresh-loading-container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-primary);
+  z-index: 99999;
+  overflow: hidden;
+}
+
+.visual-core {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-pulse-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform, filter;
+}

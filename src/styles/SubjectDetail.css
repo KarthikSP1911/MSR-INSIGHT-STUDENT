@@ -1,5 +1,10 @@
 /* ==========================================================================
-   SubjectDetail — Technical Dark Theme
+   SubjectDetail — matches the main dashboard's design tokens (see
+   src/styles/StudentDashboard.css): --bg-secondary/--bg-surface cards,
+   --border-subtle/--border-bright borders, --radius-lg/-md/-sm radii,
+   --text-primary/--text-secondary/--text-muted text hierarchy, and
+   --success/--warning/--error/--accent-primary for all status color-coding
+   (no bespoke hues) — rather than a separate parallel design system.
    ========================================================================== */
 
 /* ── Utility Classes (Hidden by default on Desktop) ── */
@@ -31,7 +36,7 @@
   gap: 20px;
   flex-wrap: wrap;
   padding-bottom: 20px;
-  border-bottom: 1px solid rgba(69, 70, 77, 0.15);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .sd-back-btn {
@@ -44,7 +49,7 @@
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
@@ -66,12 +71,13 @@
   flex-wrap: wrap;
 }
 
+/* Matches .section-title (DashboardHeader) — the same page-level heading style used by every other tab. */
 .sd-subject-name {
-  font-size: 24px;
-  font-weight: 800;
-  color: #e1e2eb;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
   margin: 0;
-  line-height: 1.1;
+  line-height: 1.2;
   letter-spacing: -0.02em;
   word-break: break-word;
 }
@@ -79,11 +85,11 @@
 .sd-subject-code {
   display: inline-block;
   padding: 2px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   color: var(--text-muted);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.06em;
   border: 1px solid var(--border-subtle);
   white-space: nowrap;
@@ -93,11 +99,6 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.sd-switcher-container {
-  position: relative;
-  display: inline-flex;
 }
 
 .sd-switcher-container {
@@ -115,7 +116,7 @@
   opacity: 0.8;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
@@ -143,10 +144,10 @@
   top: calc(100% + 8px);
   left: 0;
   width: 260px;
-  background: #111111;
+  background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-lg);
   z-index: 100;
   padding: 6px;
   animation: sd-dropdown-fade 0.2s ease-out;
@@ -165,7 +166,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.15s ease;
   margin-bottom: 2px;
@@ -176,7 +177,7 @@
 }
 
 .sd-switcher-item:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-hover);
 }
 
 .sd-switcher-item.active {
@@ -201,7 +202,7 @@
 
 .sd-item-code {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-muted);
   letter-spacing: 0.05em;
 }
@@ -243,34 +244,37 @@
   gap: 2px;
 }
 
+/* Matches .stat-label in StudentDashboard.css. */
 .sd-kpi-label {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #c6c6cd;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
   margin-bottom: 2px;
 }
 
+/* Matches .stat-value's weight/letter-spacing (StudentDashboard.css), scaled slightly down to fit the header row. */
 .sd-kpi-value {
   font-size: 26px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 
 .sd-kpi-max {
-  font-size: 15px;
-  font-weight: 600;
-  color: rgba(198, 198, 205, 0.4);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
 }
 
-/* ── Card base ── */
+/* ── Card base — matches .chart-card exactly ── */
 .sd-card {
   background: var(--bg-secondary);
   border-radius: var(--radius-lg);
   padding: 24px;
   border: 1px solid var(--border-subtle);
+  transition: all 0.2s ease;
 }
 
 .sd-card-header {
@@ -282,19 +286,20 @@
   flex-wrap: wrap;
 }
 
+/* Matches .chart-title exactly. */
 .sd-card-title {
-  font-size: 19px;
-  font-weight: 700;
-  color: #e1e2eb;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
   margin: 0;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
+  line-height: 1.3;
 }
 
+/* Matches .chart-subtitle exactly. */
 .sd-card-subtitle {
-  font-size: 13px;
-  color: #94A3B8;
-  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
   line-height: 1.4;
 }
 
@@ -323,9 +328,9 @@
 
 .sd-cal-month-label {
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: #c6c6cd;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
   min-width: 72px;
   text-align: center;
 }
@@ -336,17 +341,17 @@
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
-  color: #c6c6cd;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .sd-cal-nav-btn:hover {
-  background: rgba(255, 182, 144, 0.12);
-  color: #ffb690;
+  background: var(--accent-glow);
+  color: var(--accent-primary);
 }
 
 /* Weekday row */
@@ -360,10 +365,10 @@
 .sd-cal-weekday {
   text-align: center;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: rgba(198, 198, 205, 0.5);
+  color: var(--text-muted);
   padding: 6px 0;
 }
 
@@ -380,9 +385,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   transition: transform 0.15s ease;
   cursor: default;
 }
@@ -392,15 +397,14 @@
   pointer-events: none;
 }
 
-/* Present — green */
 .sd-cal-present {
   background: var(--bg-surface);
-  color: var(--accent-primary);
+  color: var(--success);
 }
 
 .sd-cal-absent {
   background: rgba(239, 68, 68, 0.1);
-  color: #EF4444;
+  color: var(--error);
 }
 
 .sd-cal-remaining {
@@ -414,7 +418,7 @@
   border: 1px solid var(--accent-primary);
   background: var(--accent-glow) !important;
   color: var(--accent-primary) !important;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 /* Legend */
@@ -423,7 +427,7 @@
   flex-wrap: wrap;
   gap: 16px;
   padding-top: 16px;
-  border-top: 1px solid rgba(69, 70, 77, 0.15);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .sd-legend-item {
@@ -441,52 +445,24 @@
 
 .sd-legend-text {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: #c6c6cd;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
 }
 
-/* Count badges next to legend items */
+/* Count badges next to legend items — matches .pill's shape. */
 .sd-legend-count {
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
   padding: 1px 7px;
   border-radius: 20px;
   line-height: 1.6;
 }
 
-.sd-count-present  { background: var(--bg-surface); color: var(--accent-primary); border: 1px solid var(--border-subtle); }
-.sd-count-absent   { background: rgba(239, 68, 68, 0.1); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.2); }
-.sd-count-remaining{ background: var(--bg-primary);    color: var(--text-muted); border: 1px solid var(--border-subtle); }
-
-/* ── Attendance Calculator ── */
-.sd-att-calc {
-  margin-top: 16px;
-  padding: 16px;
-  background: rgba(11, 14, 20, 0.5);
-  border: 1px solid rgba(69, 70, 77, 0.2);
-  border-radius: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.sd-att-calc-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.sd-att-calc-title {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: #c6c6cd;
-}
+.sd-count-present   { background: var(--bg-surface); color: var(--success); border: 1px solid var(--border-subtle); }
+.sd-count-absent    { background: rgba(239, 68, 68, 0.1); color: var(--error); border: 1px solid rgba(239, 68, 68, 0.2); }
+.sd-count-remaining { background: var(--bg-primary);    color: var(--text-muted); border: 1px solid var(--border-subtle); }
 
 /* Attendance Slider */
 .sd-att-slider-container {
@@ -494,10 +470,10 @@
   flex-direction: column;
   gap: 10px;
   min-width: 180px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-surface);
   padding: 10px 16px;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
 }
 
 .sd-slider-header {
@@ -510,15 +486,15 @@
 
 .sd-slider-title {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #94A3B8;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
 }
 
 .sd-slider-value {
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 700;
   transition: color 0.3s ease;
   letter-spacing: -0.01em;
 }
@@ -527,7 +503,7 @@
   -webkit-appearance: none;
   width: 100%;
   height: 4px;
-  background: #32353c;
+  background: var(--border-subtle);
   border-radius: 2px;
   outline: none;
   cursor: pointer;
@@ -542,7 +518,7 @@
   cursor: pointer;
   box-shadow: 0 0 10px var(--accent-glow);
   transition: all 0.2s ease;
-  border: 2px solid #1a1b1e;
+  border: 2px solid var(--bg-primary);
 }
 
 .sd-att-range-slider::-webkit-slider-thumb:hover {
@@ -556,7 +532,7 @@
   background: var(--accent-primary);
   border-radius: 50%;
   cursor: pointer;
-  border: 2px solid #1a1b1e;
+  border: 2px solid var(--bg-primary);
   box-shadow: 0 0 10px var(--accent-glow);
 }
 
@@ -566,12 +542,12 @@
   align-items: flex-start;
   gap: 12px;
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
-.sd-att-result-ok     { background: rgba(78,222,163,0.08);  border: 1px solid rgba(78,222,163,0.2); }
-.sd-att-result-warn   { background: rgba(255,182,144,0.08); border: 1px solid rgba(255,182,144,0.2); }
-.sd-att-result-danger { background: rgba(255,180,171,0.08); border: 1px solid rgba(255,180,171,0.2); }
+.sd-att-result-ok     { background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); }
+.sd-att-result-warn   { background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2); }
+.sd-att-result-danger { background: rgba(239, 68, 68, 0.08);  border: 1px solid rgba(239, 68, 68, 0.2); }
 
 .sd-att-result-icon {
   width: 28px;
@@ -581,34 +557,34 @@
   align-items: center;
   justify-content: center;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   flex-shrink: 0;
 }
 
-.sd-att-result-ok     .sd-att-result-icon { background: var(--bg-surface); color: var(--accent-primary); border: 1px solid var(--border-subtle); }
-.sd-att-result-warn   .sd-att-result-icon { background: rgba(255,182,144,0.1); color: #ffb690; }
-.sd-att-result-danger .sd-att-result-icon { background: rgba(239, 68, 68, 0.1); color: #EF4444; }
+.sd-att-result-ok     .sd-att-result-icon { background: var(--bg-surface); color: var(--success); border: 1px solid var(--border-subtle); }
+.sd-att-result-warn   .sd-att-result-icon { background: rgba(245, 158, 11, 0.12); color: var(--warning); }
+.sd-att-result-danger .sd-att-result-icon { background: rgba(239, 68, 68, 0.12); color: var(--error); }
 
 .sd-att-result-main {
-  font-size: 15px;
-  font-weight: 700;
-  color: #F8FAFC;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
   margin: 0 0 4px;
   letter-spacing: -0.01em;
 }
 
-.sd-att-result-main strong { font-weight: 800; color: var(--accent-primary); }
+.sd-att-result-main strong { font-weight: 700; color: var(--accent-primary); }
 
 .sd-att-result-sub {
   font-size: 13px;
-  color: #94A3B8;
+  color: var(--text-secondary);
   margin: 0;
   line-height: 1.5;
 }
 
 .sd-att-calc-na {
   font-size: 12px;
-  color: rgba(198, 198, 205, 0.5);
+  color: var(--text-muted);
   text-align: center;
   margin: 0;
 }
@@ -623,7 +599,7 @@
 .sd-att-progress-bar {
   position: relative;
   height: 6px;
-  background: rgba(50, 53, 60, 0.8);
+  background: var(--border-subtle);
   border-radius: 99px;
   overflow: visible;
 }
@@ -640,7 +616,8 @@
   transform: translateX(-50%);
   width: 2px;
   height: 14px;
-  background: rgba(255, 182, 144, 0.8);
+  background: var(--warning);
+  opacity: 0.8;
   border-radius: 1px;
 }
 
@@ -653,8 +630,8 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #ffb690;
-  box-shadow: 0 0 5px rgba(255, 182, 144, 0.6);
+  background: var(--warning);
+  box-shadow: 0 0 5px rgba(245, 158, 11, 0.6);
 }
 
 .sd-att-progress-labels {
@@ -676,9 +653,9 @@
   align-items: center;
   justify-content: space-around;
   padding: 16px;
-  background: rgba(11, 14, 20, 0.3);
-  border-radius: 10px;
-  border: 1px solid rgba(69, 70, 77, 0.1);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
 }
 
 .sd-calc-stat {
@@ -690,23 +667,23 @@
 
 .sd-calc-stat-label {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  color: #94A3B8;
-  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
   margin-bottom: 2px;
 }
 
 .sd-calc-stat-val {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: 19px;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
 .sd-calc-stat-divider {
   width: 1px;
   height: 24px;
-  background: rgba(69, 70, 77, 0.2);
+  background: var(--border-subtle);
 }
 
 .sd-calc-breakdown {
@@ -715,34 +692,34 @@
   flex-direction: column;
   gap: 14px;
   padding-top: 20px;
-  border-top: 1px solid rgba(69, 70, 77, 0.2);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .sd-calc-breakdown-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13.5px;
-  color: #94A3B8;
+  font-size: 13px;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .sd-calc-breakdown-row span:last-child {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .sd-calc-breakdown-total {
   margin-top: 6px;
   padding-top: 14px;
-  border-top: 1px dashed rgba(69, 70, 77, 0.2);
-  font-size: 15px;
-  color: #F8FAFC;
-  font-weight: 700;
+  border-top: 1px dashed var(--border-subtle);
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .sd-calc-breakdown-total span:last-child {
-  font-size: 17px;
-  color: #F8FAFC !important;
+  font-size: 16px;
+  color: var(--text-primary) !important;
 }
 
 /* ── Chart Card ── */
@@ -772,10 +749,10 @@
 
 .sd-chart-legend-label {
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: #c6c6cd;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
 }
 
 .sd-chart-area {
@@ -818,26 +795,27 @@
   border-collapse: collapse;
 }
 
+/* Matches .dashboard-table th's weight/color/tracking conventions. */
 .sd-th {
   text-align: left;
   padding: 12px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-muted);
-  border-bottom: 1px solid rgba(69, 70, 77, 0.2);
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .sd-th-center { text-align: center; }
 .sd-th-right  { text-align: right; }
 
 .sd-tr {
-  border-bottom: 1px solid rgba(69, 70, 77, 0.1);
+  border-bottom: 1px solid var(--border-subtle);
   transition: background 0.2s ease;
 }
 
-.sd-tr:hover { background: rgba(225, 226, 235, 0.02); }
+.sd-tr:hover { background: var(--bg-hover); }
 
 .sd-td {
   padding: 16px 12px;
@@ -856,19 +834,19 @@
 .sd-assessment-icon {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   flex-shrink: 0;
 }
 
 .sd-assessment-name {
   font-size: 13px;
-  font-weight: 700;
-  color: #e1e2eb;
+  font-weight: 600;
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -878,20 +856,20 @@
   margin: 0;
 }
 
-.sd-marks-value { font-size: 14px; font-weight: 700; color: var(--accent-primary); }
-.sd-avg-value { font-size: 14px; font-weight: 600; color: var(--text-primary); opacity: 0.8; }
+.sd-marks-value { font-size: 14px; font-weight: 600; color: var(--accent-primary); }
+.sd-avg-value { font-size: 14px; font-weight: 500; color: var(--text-secondary); }
 
 .sd-diff-badge {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
-.sd-diff-pos { background: rgba(78,222,163,0.1); color: #4edea3; }
-.sd-diff-neg { background: rgba(239, 68, 68, 0.1); color: #EF4444; }
-.sd-diff-eq  { background: rgba(198,198,205,0.1); color: #c6c6cd; }
+.sd-diff-pos { background: rgba(16, 185, 129, 0.1); color: var(--success); }
+.sd-diff-neg { background: rgba(239, 68, 68, 0.1); color: var(--error); }
+.sd-diff-eq  { background: var(--bg-surface); color: var(--text-secondary); }
 
 .sd-table-empty {
   text-align: center;
@@ -900,22 +878,22 @@
   font-size: 13px;
 }
 
-/* ── Tooltip custom ── */
+/* ── Tooltip custom — matches .custom-chart-tooltip conventions used elsewhere. ── */
 .sd-chart-tooltip {
-  background: #1a1b1e;
+  background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   padding: 12px;
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
 }
 
 .sd-tooltip-label {
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text-muted);
   margin-bottom: 8px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
 }
 
 .sd-tooltip-row {
@@ -967,7 +945,7 @@
   }
 
   .sd-subject-name {
-    font-size: 24px;
+    font-size: 20px;
     text-align: center;
   }
 
@@ -1004,9 +982,9 @@
     gap: 40px;
     margin-top: 10px;
     padding: 15px;
-    background: rgba(225, 226, 235, 0.03);
-    border-radius: 16px;
-    border: 1px solid rgba(225, 226, 235, 0.05);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-subtle);
   }
 
   .sd-kpi {
@@ -1079,7 +1057,7 @@
 
   .sd-header-sub {
     font-size: 8px;
-    font-weight: 800;
+    font-weight: 700;
     color: var(--accent-primary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -1090,13 +1068,14 @@
     align-items: center;
     justify-content: center;
     gap: 4px;
-    font-weight: 700;
+    font-weight: 600;
   }
 
   .sd-score-sep {
-    opacity: 0.2;
+    opacity: 0.3;
     font-weight: 300;
     font-size: 12px;
+    color: var(--text-muted);
   }
 
   .sd-assessment-cell {
@@ -1132,12 +1111,12 @@
 
   .sd-toggle-btn {
     padding: 8px 16px;
-    background: rgba(249, 115, 22, 0.1);
+    background: var(--accent-glow);
     border: 1px solid rgba(249, 115, 22, 0.3);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: var(--accent-primary);
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
     text-transform: uppercase;

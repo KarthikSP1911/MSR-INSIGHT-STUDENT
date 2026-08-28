@@ -14,8 +14,9 @@ import type { StudentDetails } from "@/lib/studentDetails";
  * A student row. `details` mirrors MSR-Insight's normalized scrape shape:
  * { usn, name, class_details, cgpa, last_updated, current_year,
  *   subjects: [{ code, name, marks, attendance, attendance_details, assessments }],
- *   exam_history: [{ semester, sgpa, credits_earned, courses }],
- *   placement }
+ *   exam_history: [{ semester, sgpa, credits_earned, courses }] }
+ * The portal's Placement section is deliberately never scraped, parsed, or stored —
+ * see puppeteerClient.ts/htmlParser.ts — so no `placement` key exists here.
  */
 export const students = pgTable("students", {
   usn: text("usn").primaryKey(),
@@ -55,7 +56,7 @@ export const scrapeJobs = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     usn: text("usn")
       .notNull()
-      .references(() => students.usn),
+      .references(() => students.usn, { onDelete: "cascade" }),
     dob: text("dob").notNull(),
     authType: text("auth_type"),
     encryptedPin: text("encrypted_pin"),

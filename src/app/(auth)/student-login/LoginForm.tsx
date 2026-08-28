@@ -1,7 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useRouter, useSearchParams } from "next/navigation";
+
+interface DropdownRect {
+  top: number;
+  left: number;
+  width: number;
+}
 
 const CustomSelect = ({
   value,
@@ -15,106 +22,77 @@ const CustomSelect = ({
   placeholder: string;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [dropdownRect, setDropdownRect] = useState<DropdownRect | null>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const close = () => setIsOpen(false);
+
+  // Positioned via a fixed-position portal to document.body rather than inline: an inline
+  // absolutely-positioned dropdown is confined to the nearest ancestor with overflow set (the
+  // scrollable .login-card), so it gets clipped instead of floating above it.
+  useLayoutEffect(() => {
+    if (!isOpen || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setDropdownRect({ top: rect.bottom + 6, left: rect.left, width: rect.width });
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    // Scrolling the long options list (e.g. the 50-year list) itself fires a "scroll" event
+    // that's caught here in the capture phase too — ignore those so the list stays open while
+    // the user scrolls it, and only close for scrolls elsewhere on the page.
+    const handleScroll = (e: Event) => {
+      if (dropdownRef.current?.contains(e.target as Node)) return;
+      close();
+    };
+    window.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("resize", handleScroll);
+    return () => {
+      window.removeEventListener("scroll", handleScroll, true);
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, [isOpen]);
 
   return (
     <div className="custom-select-container">
-      <div className="select-trigger" onClick={() => setIsOpen(!isOpen)}>
+      <div ref={triggerRef} className="select-trigger" onClick={() => setIsOpen(!isOpen)}>
         <span className={value ? "value-text" : "placeholder-text"}>{value || placeholder}</span>
         <span className="chevron">▼</span>
       </div>
-      {isOpen && (
-        <div className="select-dropdown">
-          {options.map((opt) => (
+      {isOpen &&
+        dropdownRect &&
+        createPortal(
+          <>
+            <div className="select-overlay" onClick={close} />
             <div
-              key={opt}
-              className={`select-option ${value === opt ? "selected" : ""}`}
-              onClick={() => {
-                onChange(opt);
-                setIsOpen(false);
-              }}
+              ref={dropdownRef}
+              className="select-dropdown"
+              style={{ top: dropdownRect.top, left: dropdownRect.left, width: dropdownRect.width }}
             >
-              {opt}
+              {options.map((opt) => (
+                <div
+                  key={opt}
+                  className={`select-option ${value === opt ? "selected" : ""}`}
+                  onClick={() => {
+                    onChange(opt);
+                    close();
+                  }}
+                >
+                  {opt}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
-      {isOpen && <div className="select-overlay" onClick={() => setIsOpen(false)} />}
-
-      <style jsx>{`
-        .custom-select-container {
-          position: relative;
-          flex: 1;
-        }
-        .select-trigger {
-          background: var(--bg-primary);
-          border: 1px solid var(--border-subtle);
-          padding: 9px 12px;
-          border-radius: var(--radius-md);
-          cursor: pointer;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-size: 0.85rem;
-          transition: all 0.2s ease;
-        }
-        .select-trigger:hover {
-          border-color: var(--border-bright);
-          background: var(--bg-secondary);
-        }
-        .value-text {
-          color: var(--text-primary);
-        }
-        .placeholder-text {
-          color: var(--text-muted);
-        }
-        .chevron {
-          font-size: 8px;
-          color: var(--text-muted);
-          opacity: 0.7;
-        }
-        .select-dropdown {
-          position: absolute;
-          top: calc(100% + 6px);
-          left: 0;
-          right: 0;
-          background: var(--bg-secondary);
-          border: 1px solid var(--border-subtle);
-          border-radius: var(--radius-md);
-          max-height: 200px;
-          overflow-y: auto;
-          z-index: 100;
-          box-shadow: var(--shadow-lg);
-          padding: 4px;
-        }
-        .select-option {
-          padding: 8px 12px;
-          cursor: pointer;
-          border-radius: var(--radius-sm);
-          font-size: 0.85rem;
-          color: var(--text-secondary);
-          transition: all 0.2s ease;
-        }
-        .select-option:hover {
-          background: var(--bg-surface);
-          color: var(--text-primary);
-        }
-        .select-option.selected {
-          background: var(--bg-surface);
-          color: var(--text-primary);
-          font-weight: 600;
-        }
-        .select-overlay {
-          position: fixed;
-          inset: 0;
-          z-index: 90;
-        }
-      `}</style>
+          </>,
+          document.body,
+        )}
     </div>
   );
 };
 
 export default function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [usn, setUsn] = useState("");
   const [day, setDay] = useState("");
   const [month, setMonth] = useState("");
@@ -125,7 +103,9 @@ export default function LoginForm() {
   const [last4Digits, setLast4Digits] = useState("");
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  // Seeded lazily from ?error= — carried here when a first-time login's scrape
+  // failed (wrong USN/DOB/PIN) and the dashboard bounced back with the reason.
+  const [error, setError] = useState(() => searchParams.get("error") || "");
   const [infoMsg, setInfoMsg] = useState("");
 
   const days = Array.from({ length: 31 }, (_, i) => String(i + 1));
@@ -136,6 +116,40 @@ export default function LoginForm() {
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 50 }, (_, i) => String(currentYear - i - 15));
   const authOptions = ["Father's Mobile", "Mother's Mobile", "ABC ID"];
+
+  // Arrives here as ?relogin=1 when an already-signed-in dashboard hit an account with no
+  // saved portal PIN (old account, or a first sync that never completed) — reuses this same
+  // secondary-auth section rather than a separate in-dashboard modal. USN/DOB come from the
+  // still-valid session instead of the URL, since DOB shouldn't travel in a query string.
+  useEffect(() => {
+    if (searchParams.get("relogin") !== "1") return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/profile");
+        const body = await res.json();
+        if (cancelled || !res.ok || !body.success) return;
+
+        const [d, m, y] = String(body.data?.dob || "").split("-");
+        if (!d || !m || !y) return;
+
+        setUsn(body.data?.usn || "");
+        setDay(String(parseInt(d, 10)));
+        setMonth(months[parseInt(m, 10) - 1] || "");
+        setYear(y);
+        setShowSecondaryAuth(true);
+        setInfoMsg("Please re-verify your portal PIN to continue syncing your dashboard.");
+      } catch {
+        // Session fetch failed — leave the form blank for a normal fresh login instead.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for the relogin param this page was loaded with, not on every render
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -282,137 +296,6 @@ export default function LoginForm() {
           </button>
         </form>
       </div>
-
-      <style jsx>{`
-        .login-page {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          min-height: 100vh;
-          padding: 24px 16px;
-          background: var(--bg-primary);
-        }
-        .login-card {
-          background: var(--bg-secondary);
-          border: 1px solid var(--border-subtle);
-          border-radius: var(--radius-lg);
-          padding: 28px 28px 36px;
-          max-height: 100%;
-          overflow-y: auto;
-          scrollbar-width: none;
-          width: 100%;
-          max-width: 380px;
-          box-shadow: var(--shadow-lg);
-        }
-        .login-card::-webkit-scrollbar {
-          display: none;
-        }
-        .login-header {
-          margin-bottom: 18px;
-          text-align: center;
-        }
-        .login-title {
-          font-size: 1.4rem;
-          font-weight: 800;
-          color: var(--text-primary);
-        }
-        .login-form {
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-        }
-        .form-label {
-          margin-bottom: 4px;
-          font-size: 0.8rem;
-        }
-        .input-field {
-          padding: 9px 12px;
-          font-size: 0.9rem;
-        }
-        .dob-grid {
-          display: flex;
-          gap: 8px;
-        }
-        .login-btn {
-          margin-top: 6px;
-          font-weight: 600;
-          height: 40px;
-        }
-        .form-error {
-          background: rgba(239, 68, 68, 0.1);
-          border: 1px solid rgba(239, 68, 68, 0.2);
-          color: var(--error, #ef4444);
-          padding: 8px;
-          border-radius: var(--radius-md);
-          font-size: 0.8rem;
-          text-align: center;
-        }
-        .form-info {
-          background: var(--bg-surface, rgba(255, 255, 255, 0.03));
-          border: 1px solid var(--border-subtle);
-          color: var(--text-secondary);
-          padding: 8px 12px;
-          border-radius: var(--radius-md);
-          font-size: 0.8rem;
-          text-align: center;
-          line-height: 1.35;
-        }
-        .secondary-auth-section {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          padding: 12px;
-          background: var(--bg-surface, rgba(255, 255, 255, 0.03));
-          border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-          border-radius: var(--radius-md);
-        }
-        .secondary-header h3 {
-          font-size: 0.88rem;
-          font-weight: 700;
-          color: var(--text-primary);
-          margin-bottom: 2px;
-        }
-        .secondary-header p {
-          font-size: 0.75rem;
-          color: var(--text-muted);
-        }
-        .pin-input {
-          letter-spacing: 0.25em;
-          font-size: 1rem;
-          text-align: center;
-          font-weight: 700;
-        }
-        .toggle-secondary-btn {
-          background: transparent;
-          border: none;
-          color: var(--text-secondary);
-          font-size: 0.75rem;
-          cursor: pointer;
-          text-decoration: underline;
-          padding: 2px 0;
-          text-align: center;
-          transition: color 0.2s ease;
-        }
-        .toggle-secondary-btn:hover {
-          color: var(--text-primary);
-        }
-
-        @media (max-width: 480px) {
-          .login-page {
-            padding: 16px 12px;
-          }
-          .login-card {
-            padding: 20px 16px 26px;
-            border-radius: var(--radius-md);
-          }
-          .dob-grid {
-            gap: 6px;
-          }
-          .login-title {
-            font-size: 1.2rem;
-          }
-        }
-      `}</style>
     </div>
   );
 }

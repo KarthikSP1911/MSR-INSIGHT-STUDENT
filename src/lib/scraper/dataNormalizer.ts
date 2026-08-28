@@ -5,6 +5,9 @@ import type {
   StudentDetails,
   Subject,
 } from "@/lib/studentDetails";
+// This normalizer intentionally has no concept of a "placement" field anywhere — the
+// placement section is excluded upstream in htmlParser.ts/puppeteerClient.ts and never
+// reaches here, so there's nothing for it to pass through.
 
 /**
  * Ported near-verbatim from MSR-Insight's
@@ -46,7 +49,6 @@ export interface RawScrapedRecord {
   last_updated?: string;
   current_semester?: RawSubjectEntry[];
   exam_history?: ExamHistoryEntry[];
-  placement?: StudentDetails["placement"];
 }
 
 function standardizeAssessmentType(rawName: string | undefined): string {
@@ -181,6 +183,5 @@ export function normalizeStudentRecord(scrapedRecord: RawScrapedRecord): Student
     current_year: currentYear,
     subjects: normalizedSubjects,
     exam_history: scrapedRecord.exam_history || [],
-    placement: scrapedRecord.placement ?? null,
   };
 }

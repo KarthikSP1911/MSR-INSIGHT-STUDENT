@@ -8,11 +8,12 @@ import "@/styles/SubjectDetail.css";
 import type { Subject } from "@/lib/studentDetails";
 
 const ASSESSMENT_ICONS: Record<string, string> = { T1: "T1", T2: "T2", AQ1: "Q1", AQ2: "Q2" };
+/** Uses the app's own accent/neutral tokens (var(--accent-glow), var(--bg-surface)) rather than a bespoke palette. */
 const ASSESSMENT_COLORS: Record<string, { bg: string; color: string }> = {
-  T1: { bg: "rgba(173,198,255,0.12)", color: "#adc6ff" },
-  T2: { bg: "rgba(255,182,144,0.12)", color: "#ffb690" },
-  AQ1: { bg: "rgba(78,222,163,0.12)", color: "#4edea3" },
-  AQ2: { bg: "rgba(255,180,171,0.12)", color: "#ffb4ab" },
+  T1: { bg: "var(--accent-glow)", color: "var(--accent-primary)" },
+  T2: { bg: "var(--accent-glow)", color: "var(--accent-primary)" },
+  AQ1: { bg: "var(--bg-surface)", color: "var(--text-secondary)" },
+  AQ2: { bg: "var(--bg-surface)", color: "var(--text-secondary)" },
 };
 const ASSESSMENT_LABELS: Record<string, string> = { T1: "Test 1", T2: "Test 2", AQ1: "Quiz 1", AQ2: "Quiz 2" };
 
@@ -21,6 +22,16 @@ const getMaxMarks = (type: string) => {
   if (type === "AQ1" || type === "AQ2") return 10;
   return null;
 };
+
+/** Matches the same >=85/>=75/else attendance-threshold colors used elsewhere (e.g. PerformanceSection's chart). */
+const getAttendanceColor = (attendance: number): string => {
+  if (attendance >= 85) return "var(--success)";
+  if (attendance >= 75) return "var(--warning)";
+  return "var(--error)";
+};
+
+/** Matches the same >=30 CIE-marks threshold used for the pill badge in PerformanceSection's table. */
+const getCieColor = (marks: number): string => (marks >= 30 ? "var(--success)" : "var(--warning)");
 
 interface ChartTooltipProps {
   active?: boolean;
@@ -149,7 +160,7 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
   ];
   const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
 
-  const attColor = canMiss > 0 ? "var(--accent-primary)" : canMiss === 0 ? "#ffb690" : "#EF4444";
+  const attColor = canMiss > 0 ? "var(--success)" : canMiss === 0 ? "var(--warning)" : "var(--error)";
 
   if (!subject) return null;
 
@@ -202,13 +213,13 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
         <div className="sd-header-kpis">
           <div className="sd-kpi">
             <span className="sd-kpi-label">Attendance</span>
-            <span className="sd-kpi-value" style={{ color: "var(--accent-primary)" }}>
+            <span className="sd-kpi-value" style={{ color: getAttendanceColor(subject.attendance || 0) }}>
               {Math.round(subject.attendance || 0)}%
             </span>
           </div>
           <div className="sd-kpi">
             <span className="sd-kpi-label">CIE Score</span>
-            <span className="sd-kpi-value" style={{ color: "var(--text-primary)" }}>
+            <span className="sd-kpi-value" style={{ color: getCieColor(subject.marks || 0) }}>
               {subject.marks || 0}
               <span className="sd-kpi-max">/50</span>
             </span>
@@ -264,17 +275,17 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
 
           <div className="sd-cal-legend">
             <div className="sd-legend-item">
-              <span className="sd-legend-dot" style={{ background: "#4edea3" }} />
+              <span className="sd-legend-dot" style={{ background: "var(--success)" }} />
               <span className="sd-legend-text">PRESENT</span>
               <span className="sd-legend-count sd-count-present">{presentCount}</span>
             </div>
             <div className="sd-legend-item">
-              <span className="sd-legend-dot" style={{ background: "#ffb4ab" }} />
+              <span className="sd-legend-dot" style={{ background: "var(--error)" }} />
               <span className="sd-legend-text">ABSENT</span>
               <span className="sd-legend-count sd-count-absent">{absentCount}</span>
             </div>
             <div className="sd-legend-item">
-              <span className="sd-legend-dot" style={{ background: "#32353c" }} />
+              <span className="sd-legend-dot" style={{ background: "var(--border-bright)" }} />
               <span className="sd-legend-text">REMAINING</span>
               <span className="sd-legend-count sd-count-remaining">{remainingCount}</span>
             </div>
@@ -290,10 +301,7 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
             <div className="sd-att-slider-container">
               <div className="sd-slider-header">
                 <span className="sd-slider-title">Target Attendance</span>
-                <span
-                  className="sd-slider-value"
-                  style={{ color: targetPct >= 85 ? "#4edea3" : targetPct >= 75 ? "#ffb690" : "#EF4444" }}
-                >
+                <span className="sd-slider-value" style={{ color: getAttendanceColor(targetPct) }}>
                   {targetPct}%
                 </span>
               </div>
@@ -318,14 +326,14 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
             <div className="sd-calc-stat-divider" />
             <div className="sd-calc-stat">
               <span className="sd-calc-stat-label">Target</span>
-              <span className="sd-calc-stat-val" style={{ color: "#ffb690" }}>
+              <span className="sd-calc-stat-val" style={{ color: "var(--warning)" }}>
                 {targetPct}%
               </span>
             </div>
             <div className="sd-calc-stat-divider" />
             <div className="sd-calc-stat">
               <span className="sd-calc-stat-label">Total</span>
-              <span className="sd-calc-stat-val" style={{ color: "#c6c6cd" }}>
+              <span className="sd-calc-stat-val" style={{ color: "var(--text-secondary)" }}>
                 {totalClasses}
               </span>
             </div>
@@ -348,7 +356,7 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
             </div>
             <div className="sd-att-progress-labels">
               <span style={{ color: attColor }}>{Math.round(subject.attendance || 0)}% current</span>
-              <span style={{ color: "#c6c6cd" }}>{targetPct}% target</span>
+              <span style={{ color: "var(--text-secondary)" }}>{targetPct}% target</span>
             </div>
           </div>
 
@@ -401,19 +409,19 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
           <div className="sd-calc-breakdown">
             <div className="sd-calc-breakdown-row">
               <span>Classes attended</span>
-              <span style={{ color: "#4edea3", fontWeight: 700 }}>{presentCount}</span>
+              <span style={{ color: "var(--success)", fontWeight: 700 }}>{presentCount}</span>
             </div>
             <div className="sd-calc-breakdown-row">
               <span>Classes missed</span>
-              <span style={{ color: "#ffb4ab", fontWeight: 700 }}>{absentCount}</span>
+              <span style={{ color: "var(--error)", fontWeight: 700 }}>{absentCount}</span>
             </div>
             <div className="sd-calc-breakdown-row">
               <span>Classes remaining</span>
-              <span style={{ color: "#c6c6cd", fontWeight: 700 }}>{remainingCount}</span>
+              <span style={{ color: "var(--text-secondary)", fontWeight: 700 }}>{remainingCount}</span>
             </div>
             <div className="sd-calc-breakdown-row sd-calc-breakdown-total">
               <span>Total classes</span>
-              <span style={{ color: "#e1e2eb", fontWeight: 800 }}>{totalClasses}</span>
+              <span style={{ color: "var(--text-primary)", fontWeight: 800 }}>{totalClasses}</span>
             </div>
           </div>
         </section>
@@ -542,7 +550,7 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
                     const classAvg = a.class_average || 0;
                     const diff = obtained - classAvg;
                     const maxMarks = getMaxMarks(a.type) ?? "—";
-                    const colors = ASSESSMENT_COLORS[a.type] || { bg: "rgba(198,198,205,0.12)", color: "#c6c6cd" };
+                    const colors = ASSESSMENT_COLORS[a.type] || { bg: "var(--bg-surface)", color: "var(--text-secondary)" };
 
                     return (
                       <tr key={idx} className="sd-tr">

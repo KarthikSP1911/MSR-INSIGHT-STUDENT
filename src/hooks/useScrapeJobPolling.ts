@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 export type ScrapeJobStatus = "pending" | "running" | "success" | "failed";
@@ -10,6 +11,13 @@ export interface ScrapeJobStatusResponse {
 }
 
 const TERMINAL_STATUSES: ScrapeJobStatus[] = ["success", "failed"];
+
+// The worker itself gives up on a wedged scrape after 4 minutes (JOB_TIMEOUT_MS in
+// worker/scraper-worker.ts) and marks the job "failed" — this is a client-side backstop for
+// the case that never reaches us at all (worker process down, crashed, or a job stuck in
+// "pending"/"running" from before that timeout existed), so the dashboard doesn't spin
+// forever instead of surfacing an error.
+const MAX_POLL_MS = 6 * 60 * 1000;
 
 /**
  * Polls /api/scrape-jobs/[id] every ~2s until the job reaches a terminal
@@ -36,10 +44,26 @@ export function useScrapeJobPolling(jobId: string | null) {
     },
   });
 
-  const status = query.data?.status ?? null;
+  // Which jobId (if any) has been polled past MAX_POLL_MS without reaching a terminal
+  // status — a sentinel rather than a plain boolean so a new jobId is "not timed out" for
+  // free, with no separate reset call needed when the id changes.
+  const [timedOutJobId, setTimedOutJobId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!jobId) return;
+    const timer = setTimeout(() => setTimedOutJobId(jobId), MAX_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [jobId]);
+
+  const timedOut = timedOutJobId !== null && timedOutJobId === jobId;
+  const status = timedOut ? "failed" : query.data?.status ?? null;
+  const error = timedOut
+    ? "This is taking longer than expected. Please try updating again in a few minutes."
+    : query.data?.error ?? null;
+
   return {
     status,
-    error: query.data?.error ?? null,
+    error,
     resultSummary: query.data?.resultSummary ?? null,
     isSyncing: !!jobId && status !== "success" && status !== "failed",
   };

@@ -3,7 +3,6 @@
 import React from "react";
 
 interface DashboardHeaderProps {
-  name?: string;
   sectionTitle?: string;
   sectionSubtitle?: string;
   children?: React.ReactNode;
@@ -11,25 +10,13 @@ interface DashboardHeaderProps {
 }
 
 const DashboardHeader: React.FC<DashboardHeaderProps> = ({
-  name,
   sectionTitle,
   sectionSubtitle,
   children,
   actions,
 }) => {
-  const displayName = name || "Student";
-
   return (
     <header className="dashboard-header-container">
-      <div className="welcome-block">
-        <h1 className="welcome-title">
-          Welcome back, <span className="highlight-name">{displayName}</span>
-        </h1>
-        <p className="welcome-tagline">Here&rsquo;s your current semester performance overview</p>
-      </div>
-
-      <hr className="header-divider-main" />
-
       {(sectionTitle || sectionSubtitle || children || actions) && (
         <div className="section-header-block">
           <div className="section-header-top">

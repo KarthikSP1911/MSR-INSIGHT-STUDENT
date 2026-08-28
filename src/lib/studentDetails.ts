@@ -38,22 +38,6 @@ export interface ExamHistoryEntry {
   courses: ExamHistoryCourse[];
 }
 
-export interface RawPlacementEvent {
-  title?: string;
-  textContent?: string;
-  details?: string[];
-  actionLink?: string;
-  [key: string]: unknown;
-}
-
-export interface PlacementData {
-  profile?: Record<string, string>;
-  eligibilityEvents?: RawPlacementEvent[];
-  inProgressEvents?: RawPlacementEvent[];
-  completedEvents?: RawPlacementEvent[];
-  [key: string]: unknown;
-}
-
 export interface StudentDetails {
   usn?: string;
   name?: string;
@@ -64,7 +48,6 @@ export interface StudentDetails {
   subjects?: Subject[];
   current_semester?: Subject[]; // legacy alias some scrapes produced
   exam_history?: ExamHistoryEntry[];
-  placement?: PlacementData | null;
 }
 
 export function hasScrapedData(details: StudentDetails | null | undefined): boolean {

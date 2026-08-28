@@ -18,10 +18,6 @@ export interface ScrapedData {
   attendance: Record<string, string>;
   cie: Record<string, string>;
   exams?: string;
-  placementEligibility?: string;
-  placementStatus?: string;
-  placementResults?: string;
-  placementProfile?: string;
 }
 
 const resolveParentsUrl = (href: string | undefined): string => {
@@ -35,7 +31,17 @@ const resolveParentsUrl = (href: string | undefined): string => {
 /** Skip these while logging in — the login/dashboard HTML is all we parse, none of the rendered chrome matters. */
 const BLOCKED_RESOURCE_TYPES = new Set(["image", "stylesheet", "font", "media"]);
 
-/** Max simultaneous HTTP requests against the portal for attendance/CIE/exam/placement pages. */
+/**
+ * The portal's own login-error page still contains the literal string
+ * "LOGOUT" somewhere in its static layout, which false-positives the
+ * `content.includes("LOGOUT")` success heuristic below. This is checked
+ * first and wins regardless of that heuristic, so a wrong USN/DOB/PIN
+ * reliably throws instead of silently "succeeding" with an empty record.
+ */
+const LOGIN_ERROR_TEXT_RE = /does not exist|invalid username|invalid password|invalid credentials|incorrect (password|pin)/i;
+const hasLoginErrorText = (html: string): boolean => LOGIN_ERROR_TEXT_RE.test(html);
+
+/** Max simultaneous HTTP requests against the portal for attendance/CIE/exam pages. */
 const FETCH_CONCURRENCY = 6;
 
 export const getCompleteStudentData = async (
@@ -78,25 +84,30 @@ export const getCompleteStudentData = async (
 
     await page.evaluate(
       (dStr: string, mStr: string, yStr: string) => {
-        const selectOpt = (id: string, val: string) => {
+        // Inlined deliberately (no local named helper function): tsx/esbuild
+        // wraps named function declarations with a `__name(fn, "name")` call
+        // for keepNames, and since page.evaluate() stringifies this callback
+        // to run inside the page's own JS context, that helper reference
+        // doesn't exist there and throws "__name is not defined".
+        for (const [id, val] of [
+          ["dd", dStr],
+          ["mm", mStr],
+          ["yyyy", yStr],
+        ] as const) {
           const sel = document.getElementById(id) as HTMLSelectElement | null;
-          if (sel) {
-            const target = String(val).trim();
-            const opt = Array.from(sel.options).find(
-              (o) =>
-                o.value.trim() === target ||
-                o.text.trim() === target ||
-                (!isNaN(parseInt(o.value, 10)) && parseInt(o.value, 10) === parseInt(target, 10)),
-            );
-            if (opt) {
-              sel.value = opt.value;
-              sel.dispatchEvent(new Event("change", { bubbles: true }));
-            }
+          if (!sel) continue;
+          const target = String(val).trim();
+          const opt = Array.from(sel.options).find(
+            (o) =>
+              o.value.trim() === target ||
+              o.text.trim() === target ||
+              (!isNaN(parseInt(o.value, 10)) && parseInt(o.value, 10) === parseInt(target, 10)),
+          );
+          if (opt) {
+            sel.value = opt.value;
+            sel.dispatchEvent(new Event("change", { bubbles: true }));
           }
-        };
-        selectOpt("dd", dStr);
-        selectOpt("mm", mStr);
-        selectOpt("yyyy", yStr);
+        }
       },
       day,
       month,
@@ -119,7 +130,7 @@ export const getCompleteStudentData = async (
 
     let currentUrl = page.url();
     let content = await page.content();
-    let hasLogout = content.toUpperCase().includes("LOGOUT");
+    let hasLogout = content.toUpperCase().includes("LOGOUT") && !hasLoginErrorText(content);
     let isDashboardUrl = currentUrl.toLowerCase().includes("dashboard") || currentUrl.toLowerCase().includes("ksign");
 
     if (!isDashboardUrl && !hasLogout) {
@@ -172,12 +183,12 @@ export const getCompleteStudentData = async (
 
         currentUrl = page.url();
         content = await page.content();
-        hasLogout = content.toUpperCase().includes("LOGOUT");
+        hasLogout = content.toUpperCase().includes("LOGOUT") && !hasLoginErrorText(content);
         isDashboardUrl = currentUrl.toLowerCase().includes("dashboard") || currentUrl.toLowerCase().includes("ksign");
       }
     }
 
-    if (!isDashboardUrl && !hasLogout) {
+    if ((!isDashboardUrl && !hasLogout) || hasLoginErrorText(content)) {
       throw new Error("Invalid portal credentials or 4-digit PIN. Please verify your USN, Date of Birth, and PIN.");
     }
 
@@ -214,19 +225,9 @@ export const getCompleteStudentData = async (
     const examsUrl = "https://parents.msrit.edu/newparents/index.php?option=com_history&task=getResult";
     urlToTargets.set(examsUrl, [{ courseCode: "EXAMS", type: "exams" }]);
 
-    const placementEligibilityUrl =
-      "https://parents.msrit.edu/newparents/index.php?option=com_placement&controller=placement&task=placementeligibility";
-    const placementStatusUrl =
-      "https://parents.msrit.edu/newparents/index.php?option=com_placement&controller=placement&task=placementstatus";
-    const placementResultsUrl =
-      "https://parents.msrit.edu/newparents/index.php?option=com_placement&controller=placement&task=placementresults";
-    const placementProfileUrl =
-      "https://parents.msrit.edu/newparents/index.php?option=com_placement&controller=placement&task=getBasicprofiledetails";
-
-    urlToTargets.set(placementEligibilityUrl, [{ courseCode: "PLACEMENT", type: "placement_eligibility" }]);
-    urlToTargets.set(placementStatusUrl, [{ courseCode: "PLACEMENT", type: "placement_status" }]);
-    urlToTargets.set(placementResultsUrl, [{ courseCode: "PLACEMENT", type: "placement_results" }]);
-    urlToTargets.set(placementProfileUrl, [{ courseCode: "PLACEMENT", type: "placement_profile" }]);
+    // Placement pages (com_placement: eligibility/status/results/profile) are deliberately
+    // never added to urlToTargets — the placement section is out of scope for this scraper
+    // entirely, not just unparsed. Nothing under it is fetched, stored, or processed.
 
     const axiosInstance = axios.create({
       timeout: 10000,
@@ -255,10 +256,6 @@ export const getCompleteStudentData = async (
         if (t.type === "exams") scrapedData.exams = html;
         else if (t.type === "attendance") scrapedData.attendance[t.courseCode] = html;
         else if (t.type === "cie") scrapedData.cie[t.courseCode] = html;
-        else if (t.type === "placement_eligibility") scrapedData.placementEligibility = html;
-        else if (t.type === "placement_status") scrapedData.placementStatus = html;
-        else if (t.type === "placement_results") scrapedData.placementResults = html;
-        else if (t.type === "placement_profile") scrapedData.placementProfile = html;
       }
     }
 

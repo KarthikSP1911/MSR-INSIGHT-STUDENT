@@ -34,33 +34,6 @@ const LoadingScreen = () => {
           />
         </motion.div>
       </div>
-
-      <style jsx>{`
-        .fresh-loading-container {
-          position: fixed;
-          inset: 0;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          background-color: var(--bg-primary, #0a0a0a);
-          z-index: 99999;
-          overflow: hidden;
-        }
-
-        .visual-core {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .logo-pulse-container {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          will-change: transform, filter;
-        }
-      `}</style>
     </div>
   );
 };

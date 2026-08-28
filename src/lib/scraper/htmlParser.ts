@@ -14,14 +14,6 @@ import type { ScrapedData } from "./puppeteerClient";
 
 const COURSE_CODE_RE = /^[0-9A-Z]{5,14}$/;
 
-function resolveParentsUrl(href: string | undefined): string {
-  if (!href) return "";
-  const h = href.trim();
-  if (h.startsWith("http://") || h.startsWith("https://")) return h;
-  if (h.startsWith("/")) return `https://parents.msrit.edu${h}`;
-  return `https://parents.msrit.edu/newparents/${h.replace(/^\.\//, "")}`;
-}
-
 export interface CourseRow {
   code: string;
   name: string;
@@ -105,160 +97,6 @@ function extractChartDataJsonArray(html: string | undefined): string | null {
     }
   }
   return null;
-}
-
-// ---- Placement Scrapers ----
-
-type PlacementEvent = Record<string, unknown>;
-
-function parsePlacementEvents(html: string | undefined): PlacementEvent[] {
-  if (!html) return [];
-  const $ = cheerio.load(html);
-  const events: PlacementEvent[] = [];
-
-  const listItems = $("ul.cn-elig_list li, .cn-elig_list li");
-  if (listItems.length > 0) {
-    listItems.each((_, li) => {
-      const $li = $(li);
-      if (
-        $li.find(".cn-noevents").length > 0 ||
-        $li.text().includes("No Events available") ||
-        $li.text().includes("No events") ||
-        $li.hasClass("cn-noevents")
-      ) {
-        return;
-      }
-
-      const lines = $li
-        .text()
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
-      let title = $li.find(".elig_name").text().trim() || $li.find("h4").text().trim();
-      if (!title && lines.length > 0) {
-        title = lines[0].length === 1 && lines.length > 1 ? lines[1] : lines[0];
-      }
-      title = title || "Placement Opportunity";
-      const actionLink = $li.find("a").attr("href") || "";
-
-      const details: string[] = [];
-      $li.find("p, span, div").each((_, el) => {
-        const text = $(el).text().trim();
-        if (text && text !== title && text.length > 1 && !text.includes("Choose file") && !text.includes("Upload")) {
-          details.push(text);
-        }
-      });
-
-      events.push({
-        title,
-        details: Array.from(new Set(details)).slice(0, 10),
-        actionLink: actionLink ? resolveParentsUrl(actionLink) : "",
-      });
-    });
-
-    if (events.length > 0) return events;
-  }
-
-  // Fallback to general tables
-  const tables = $("table");
-  if (tables.length > 0) {
-    tables.each((_, table) => {
-      const $table = $(table);
-      const headers: string[] = [];
-      $table.find("thead th, tr th").each((_, th) => {
-        headers.push($(th).text().trim());
-      });
-
-      $table.find("tbody tr, tr").each((_, tr) => {
-        const $tr = $(tr);
-        if ($tr.find("th").length > 0) return;
-        const cols = $tr.find("td");
-        if (cols.length === 0) return;
-
-        const eventData: PlacementEvent = {};
-        cols.each((i, td) => {
-          const header = headers[i] || `field_${i}`;
-          eventData[header] = $(td).text().trim();
-        });
-
-        const actionLink = $tr.find("a").attr("href") || "";
-        if (actionLink) {
-          eventData.actionLink = resolveParentsUrl(actionLink);
-        }
-
-        if (Object.keys(eventData).length > 0) {
-          events.push(eventData);
-        }
-      });
-    });
-  }
-
-  return events;
-}
-
-function parsePlacementProfile(html: string | undefined): Record<string, string> {
-  if (!html) return {};
-  const $ = cheerio.load(html);
-  const profile: Record<string, string> = {};
-
-  $(".profile_info_row").each((_, row) => {
-    const $row = $(row);
-    const label = $row.find(".profile_info_label").text().trim().replace(/:$/, "").trim();
-    const value = $row.find(".profile_info_value").text().trim();
-    if (label && value && label.length < 50 && value.length < 200) {
-      profile[label] = value;
-    }
-  });
-
-  $("table tr").each((_, tr) => {
-    const cols = $(tr).find("td, th");
-    if (cols.length === 2) {
-      const key = $(cols[0]).text().trim().replace(/:$/, "").trim();
-      const value = $(cols[1]).text().trim();
-      if (key && value && key.length < 50) {
-        profile[key] = value;
-      }
-    }
-  });
-
-  $(".form-group, .uk-form-controls, div").each((_, group) => {
-    const $group = $(group);
-    const label = $group.find("label").text().trim().replace(/:$/, "").trim();
-    const value =
-      ($group.find('input[type="text"], input[type="number"], select').val() as string | undefined) ||
-      $group.find(".value, span, p").first().text().trim();
-
-    if (label && value && label.length < 50 && typeof value === "string" && value.length < 200) {
-      profile[label] = value;
-    }
-  });
-
-  $('input[type="text"], input[type="email"], input[type="number"], select').each((_, input) => {
-    const $input = $(input);
-    const id = $input.attr("id") || "";
-    const name = $input.attr("name") || "";
-    const value = $input.val();
-
-    let label = "";
-    if (id) {
-      label = $(`label[for="${id}"]`).text().trim().replace(/:$/, "").trim();
-    }
-    if (!label && name) {
-      label = name;
-    }
-    if (label && value && typeof value === "string") {
-      profile[label] = value;
-    }
-  });
-
-  const cleanProfile: Record<string, string> = {};
-  for (const key in profile) {
-    if (key && profile[key] && !key.toLowerCase().includes("token") && !key.toLowerCase().includes("submit")) {
-      cleanProfile[key] = profile[key];
-    }
-  }
-
-  return cleanProfile;
 }
 
 export function parseAndProcessData(scrapedData: ScrapedData): StudentDetails {
@@ -419,12 +257,6 @@ export function parseAndProcessData(scrapedData: ScrapedData): StudentDetails {
     last_updated: new Date().toISOString(),
     current_semester: currentSemesterData,
     exam_history: semesterHistory,
-    placement: {
-      profile: parsePlacementProfile(scrapedData.placementProfile),
-      eligibilityEvents: parsePlacementEvents(scrapedData.placementEligibility),
-      inProgressEvents: parsePlacementEvents(scrapedData.placementStatus),
-      completedEvents: parsePlacementEvents(scrapedData.placementResults),
-    },
   };
 
   return normalizeStudentRecord(studentRecord);

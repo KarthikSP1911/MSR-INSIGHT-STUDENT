@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "MSR Insight — Student Dashboard",
+  title: "MSR Insight",
   description: "Student academic dashboard: performance, analytics, exam history, and more.",
 };
 

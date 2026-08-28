@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
+import { normalizeAuthType } from "@/lib/auth/authType";
 import { decryptText } from "@/lib/auth/crypto";
 import { setSessionCookie } from "@/lib/auth/cookies";
 import { signStudentToken } from "@/lib/auth/jwt";
@@ -31,7 +32,11 @@ export async function POST(request: NextRequest) {
   const db = getDb();
   const [existing] = await db.select().from(students).where(eq(students.usn, usn));
 
-  if (existing && existing.dob !== dob) {
+  // Only reject on a DOB mismatch once we have confirmed (successfully scraped) data to
+  // trust — an existing row with no scraped data is just an unverified placeholder from a
+  // prior failed first-login attempt (see scrapeAndSyncStudent's failure path), so a
+  // corrected retry with a different DOB is allowed to proceed and overwrite it.
+  if (existing && existing.dob !== dob && hasScrapedData(existing.details)) {
     return NextResponse.json(
       { success: false, message: "Invalid USN or Date of Birth." },
       { status: 400 },
@@ -72,12 +77,17 @@ export async function POST(request: NextRequest) {
 
   if (!existing) {
     await db.insert(students).values({ usn, dob, currentYear: 0, details: {} });
+  } else if (existing.dob !== dob) {
+    await db.update(students).set({ dob }).where(eq(students.usn, usn));
   }
 
+  // Canonicalize here rather than trust the stored value as-is: `existing?.authType` may be a
+  // pre-this-app free-text variant ("mother", "mobile", ...) from before the login form's
+  // fixed 3-value dropdown existed — see normalizeAuthType's own doc comment.
   const jobId = await enqueueScrapeJob(db, {
     usn,
     dob,
-    authType: targetAuthType,
+    authType: normalizeAuthType(targetAuthType),
     plainPin: targetPin,
     trigger: "login",
   });

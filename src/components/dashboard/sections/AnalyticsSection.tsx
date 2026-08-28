@@ -6,7 +6,6 @@ import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import type { StudentDetails, Subject } from "@/lib/studentDetails";
 
 interface AnalyticsSectionProps {
-  studentName: string;
   internalComparisonData: { code: string; name: string; studentScore: number; classAverage: number }[];
   gradeChartData: { grade: string; count: number; color: string }[];
   bestSubject: Subject | undefined;
@@ -54,7 +53,6 @@ const AnalyticsTooltip = ({ active, payload, label }: ChartTooltipProps) => {
 };
 
 export default function AnalyticsSection({
-  studentName,
   internalComparisonData,
   gradeChartData,
   bestSubject,
@@ -66,7 +64,7 @@ export default function AnalyticsSection({
 }: AnalyticsSectionProps) {
   return (
     <div className="tab-content">
-      <DashboardHeader name={studentName} sectionTitle="Academic Analytics" sectionSubtitle="Deep insights into your academic journey" />
+      <DashboardHeader sectionTitle="Academic Analytics" sectionSubtitle="Deep insights into your academic journey" />
 
       <div className="charts-grid">
         <div className="chart-card wide-chart">

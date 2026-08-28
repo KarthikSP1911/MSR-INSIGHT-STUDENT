@@ -3,7 +3,8 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Target, History as HistoryIcon, Gamepad2, LogOut, BookOpen, Briefcase, BarChart3 } from "lucide-react";
+import { Target, History as HistoryIcon, Gamepad2, LogOut, BookOpen } from "lucide-react";
+// import { BarChart3 } from "lucide-react"; // Analytics tab temporarily disabled
 import "@/styles/StudentDashboard.css";
 import SubjectDetail from "@/app/(dashboard)/student/dashboard/components/SubjectDetail";
 import SidebarProfile from "@/components/dashboard/SidebarProfile";
@@ -14,17 +15,15 @@ import { useCooldown } from "@/hooks/useCooldown";
 import { useScrapeJobPolling } from "@/hooks/useScrapeJobPolling";
 
 import PerformanceSection from "@/components/dashboard/sections/PerformanceSection";
-import AnalyticsSection from "@/components/dashboard/sections/AnalyticsSection";
+// import AnalyticsSection from "@/components/dashboard/sections/AnalyticsSection"; // Analytics tab temporarily disabled
 import HistorySection from "@/components/dashboard/sections/HistorySection";
 import SimulatorSection from "@/components/dashboard/sections/SimulatorSection";
 import NotesSection from "@/components/dashboard/sections/NotesSection";
-import PlacementSection from "@/components/dashboard/sections/PlacementSection";
 import LoadingScreen from "@/components/dashboard/LoadingScreen";
 import BirthdayBanner from "@/components/dashboard/BirthdayBanner";
-import PinVerificationModal from "@/components/dashboard/PinVerificationModal";
 
 import type { Student } from "@/lib/db/schema";
-import type { Subject } from "@/lib/studentDetails";
+import { hasScrapedData, type Subject } from "@/lib/studentDetails";
 
 const GRADE_COLORS: Record<string, string> = {
   O: "#8b5cf6",
@@ -68,7 +67,6 @@ export default function StudentDashboard() {
   );
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [showMobileProfileMenu, setShowMobileProfileMenu] = useState(false);
-  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   // Captured once, lazily, from the ?syncJobId= param a fresh login redirect may carry —
   // reading it in a state initializer (rather than an effect) avoids a spurious setState-in-effect.
   const [syncJobId, setSyncJobId] = useState<string | null>(() => searchParams.get("syncJobId"));
@@ -136,12 +134,25 @@ export default function StudentDashboard() {
       setSyncJobId(null);
       setTimeout(() => setUpdateStatus(null), 3000);
     } else if (jobStatus === "failed") {
-      setUpdateStatus("error");
-      setUpdateError(jobError);
       setSyncJobId(null);
-      setTimeout(() => setUpdateStatus(null), 4000);
+
+      // A failed sync with no scraped data yet means this was the first-ever
+      // login attempt and the USN/DOB/PIN never actually got past the portal's
+      // own login form — the worker also drops the unverified student row in
+      // this case (see scraper-worker.ts), so bounce back to the login form
+      // with the error surfaced, rather than stranding the student on a
+      // permanently-empty dashboard.
+      if (!hasScrapedData(student?.details)) {
+        void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
+          router.push(`/student-login?error=${encodeURIComponent(jobError || "We couldn't verify your details. Please try again.")}`);
+        });
+      } else {
+        setUpdateStatus("error");
+        setUpdateError(jobError);
+        setTimeout(() => setUpdateStatus(null), 4000);
+      }
     }
-  }, [jobStatus, jobError, queryClient]);
+  }, [jobStatus, jobError, queryClient, student, router]);
 
   const detailsBlob = useMemo(() => student?.details || {}, [student]);
   const currentSem = useMemo(() => detailsBlob.subjects || detailsBlob.current_semester || [], [detailsBlob]);
@@ -167,7 +178,8 @@ export default function StudentDashboard() {
     [examHistory],
   );
 
-  const sgpaDiffValue = useMemo(() => latestSGPA - prevSGPA, [latestSGPA, prevSGPA]);
+  // Analytics tab temporarily disabled — sgpaDiffValue was only consumed there.
+  // const sgpaDiffValue = useMemo(() => latestSGPA - prevSGPA, [latestSGPA, prevSGPA]);
 
   const stdUsn = useMemo(() => student?.usn || detailsBlob.usn || "", [student, detailsBlob]);
 
@@ -182,61 +194,63 @@ export default function StudentDashboard() {
     [currentSem],
   );
 
-  const sgpaTrendData = useMemo(
-    () =>
-      examHistory.map((sem) => ({
-        name: sem.semester.split(" ")[0] + " " + (sem.semester.split(" ")[2]?.substring(2) || ""),
-        sgpa: parseFloat(sem.sgpa),
-        credits: parseInt(sem.credits_earned || "0"),
-      })),
-    [examHistory],
-  );
+  // Analytics tab temporarily disabled — sgpaTrendData, gradeChartData, internalComparisonData,
+  // bestSubject, and weakestSubject were only consumed there.
+  // const sgpaTrendData = useMemo(
+  //   () =>
+  //     examHistory.map((sem) => ({
+  //       name: sem.semester.split(" ")[0] + " " + (sem.semester.split(" ")[2]?.substring(2) || ""),
+  //       sgpa: parseFloat(sem.sgpa),
+  //       credits: parseInt(sem.credits_earned || "0"),
+  //     })),
+  //   [examHistory],
+  // );
 
-  const gradeChartData = useMemo(() => {
-    const allGrades = examHistory.flatMap((sem) => sem.courses?.map((c) => c.grade) || []);
-    const distribution = allGrades.reduce<Record<string, number>>((acc, grade) => {
-      acc[grade] = (acc[grade] || 0) + 1;
-      return acc;
-    }, {});
-    return Object.entries(distribution)
-      .map(([grade, count]) => ({ grade, count, color: GRADE_COLORS[grade] || "#64748b" }))
-      .sort((a, b) => b.count - a.count);
-  }, [examHistory]);
+  // const gradeChartData = useMemo(() => {
+  //   const allGrades = examHistory.flatMap((sem) => sem.courses?.map((c) => c.grade) || []);
+  //   const distribution = allGrades.reduce<Record<string, number>>((acc, grade) => {
+  //     acc[grade] = (acc[grade] || 0) + 1;
+  //     return acc;
+  //   }, {});
+  //   return Object.entries(distribution)
+  //     .map(([grade, count]) => ({ grade, count, color: GRADE_COLORS[grade] || "#64748b" }))
+  //     .sort((a, b) => b.count - a.count);
+  // }, [examHistory]);
 
-  const internalComparisonData = useMemo(() => {
-    return currentSem
-      .map((subj) => {
-        const getScores = (type: string) => {
-          const a = subj.assessments?.find((x) => x.type === type);
-          return { me: a?.obtained_marks || 0, avg: a?.class_average || 0 };
-        };
-        const t1 = getScores("T1");
-        const t2 = getScores("T2");
-        const aq1 = getScores("AQ1");
-        const aq2 = getScores("AQ2");
-        const testAvg = t1.me > 0 && t2.me > 0 ? Math.round((t1.me + t2.me) / 2) : Math.max(t1.me, t2.me);
-        const avgTotal = t1.avg > 0 && t2.avg > 0 ? Math.round((t1.avg + t2.avg) / 2) : Math.max(t1.avg, t2.avg);
-        return {
-          code: subj.code,
-          name: subj.name,
-          studentScore: testAvg + aq1.me + aq2.me,
-          classAverage: avgTotal + aq1.avg + aq2.avg,
-        };
-      })
-      .filter((d) => d.studentScore > 0 || d.classAverage > 0);
-  }, [currentSem]);
+  // const internalComparisonData = useMemo(() => {
+  //   return currentSem
+  //     .map((subj) => {
+  //       const getScores = (type: string) => {
+  //         const a = subj.assessments?.find((x) => x.type === type);
+  //         return { me: a?.obtained_marks || 0, avg: a?.class_average || 0 };
+  //       };
+  //       const t1 = getScores("T1");
+  //       const t2 = getScores("T2");
+  //       const aq1 = getScores("AQ1");
+  //       const aq2 = getScores("AQ2");
+  //       const testAvg = t1.me > 0 && t2.me > 0 ? Math.round((t1.me + t2.me) / 2) : Math.max(t1.me, t2.me);
+  //       const avgTotal = t1.avg > 0 && t2.avg > 0 ? Math.round((t1.avg + t2.avg) / 2) : Math.max(t1.avg, t2.avg);
+  //       return {
+  //         code: subj.code,
+  //         name: subj.name,
+  //         studentScore: testAvg + aq1.me + aq2.me,
+  //         classAverage: avgTotal + aq1.avg + aq2.avg,
+  //       };
+  //     })
+  //     .filter((d) => d.studentScore > 0 || d.classAverage > 0);
+  // }, [currentSem]);
 
-  const bestSubject = useMemo(() => {
-    return [...currentSem]
-      .filter((s) => s.marks > 0 || (s.attendance && s.attendance > 0))
-      .sort((a, b) => (b.marks * 2 + b.attendance) - (a.marks * 2 + a.attendance))[0];
-  }, [currentSem]);
+  // const bestSubject = useMemo(() => {
+  //   return [...currentSem]
+  //     .filter((s) => s.marks > 0 || (s.attendance && s.attendance > 0))
+  //     .sort((a, b) => (b.marks * 2 + b.attendance) - (a.marks * 2 + a.attendance))[0];
+  // }, [currentSem]);
 
-  const weakestSubject = useMemo(() => {
-    return [...currentSem]
-      .filter((s) => s.marks > 0 || (s.attendance && s.attendance > 0))
-      .sort((a, b) => (a.marks * 2 + a.attendance) - (b.marks * 2 + b.attendance))[0];
-  }, [currentSem]);
+  // const weakestSubject = useMemo(() => {
+  //   return [...currentSem]
+  //     .filter((s) => s.marks > 0 || (s.attendance && s.attendance > 0))
+  //     .sort((a, b) => (a.marks * 2 + a.attendance) - (b.marks * 2 + b.attendance))[0];
+  // }, [currentSem]);
 
   const isBirthday = useMemo(() => {
     if (!student?.dob) return false;
@@ -308,8 +322,10 @@ export default function StudentDashboard() {
         return;
       }
       if (response.status === 401 && body.requiresRelogin) {
+        // No saved portal PIN to sync with — send them to the login page's own secondary-auth
+        // flow (same UI as first-time login) rather than asking for it again here.
         setUpdateStatus(null);
-        setIsPinModalOpen(true);
+        router.push("/student-login?relogin=1");
         return;
       }
       if (!response.ok || !body.success) {
@@ -343,8 +359,8 @@ export default function StudentDashboard() {
           {[
             { id: "performance", icon: <Target size={20} />, label: "Current Semester" },
             { id: "notes", icon: <BookOpen size={20} />, label: "Notes & PYQs" },
-            { id: "analytics", icon: <BarChart3 size={20} />, label: "Analytics" },
-            { id: "placement", icon: <Briefcase size={20} />, label: "Placements" },
+            // Analytics tab temporarily disabled — see activeTab === "analytics" render block below.
+            // { id: "analytics", icon: <BarChart3 size={20} />, label: "Analytics" },
             { id: "history", icon: <HistoryIcon size={20} />, label: "Exam History" },
             { id: "simulator", icon: <Gamepad2 size={20} />, label: "Simulator" },
           ].map((tab) => (
@@ -439,7 +455,6 @@ export default function StudentDashboard() {
             <>
               {activeTab === "performance" && (
                 <PerformanceSection
-                  student={student}
                   currentSem={currentSem}
                   overallAttendance={overallAttendance}
                   totalCredits={totalCredits}
@@ -456,9 +471,9 @@ export default function StudentDashboard() {
                   sgpaDiff={(latestSGPA - prevSGPA >= 0 ? "+" : "") + (latestSGPA - prevSGPA).toFixed(2)}
                 />
               )}
+              {/* Analytics tab temporarily disabled — see nav lists above.
               {activeTab === "analytics" && (
                 <AnalyticsSection
-                  studentName={student?.name || ""}
                   internalComparisonData={internalComparisonData}
                   gradeChartData={gradeChartData}
                   bestSubject={bestSubject}
@@ -470,9 +485,9 @@ export default function StudentDashboard() {
                   sgpaTrendData={sgpaTrendData}
                 />
               )}
+              */}
               {activeTab === "history" && (
                 <HistorySection
-                  studentName={student?.name || ""}
                   examHistory={examHistory}
                   selectedHistoryIdx={selectedHistoryIdx}
                   setSelectedHistoryIdx={setSelectedHistoryIdx}
@@ -482,25 +497,13 @@ export default function StudentDashboard() {
               )}
               {activeTab === "notes" && (
                 <NotesSection
-                  studentName={student?.name || ""}
                   usn={stdUsn}
                   currentSemSubjects={currentSem}
                   examHistory={examHistory}
                 />
               )}
-              {activeTab === "placement" && (
-                <PlacementSection
-                  studentName={student?.name || ""}
-                  placementData={detailsBlob.placement}
-                  handleUpdate={handleUpdate}
-                  updateStatus={updateStatus}
-                  isCooldownActive={isCooldownActive}
-                  formatTime={formatTime}
-                />
-              )}
               {activeTab === "simulator" && (
                 <SimulatorSection
-                  studentName={student?.name || ""}
                   currentSem={currentSem}
                   predictedGrades={effectivePredictedGrades}
                   simulatedCredits={effectiveSimulatedCredits}
@@ -510,6 +513,8 @@ export default function StudentDashboard() {
                   totalCredits={totalCredits}
                   GRADE_COLORS={GRADE_COLORS}
                   GRADE_POINTS={GRADE_POINTS}
+                  examHistory={examHistory}
+                  isLateralEntry={isLateralEntry}
                 />
               )}
             </>
@@ -521,8 +526,8 @@ export default function StudentDashboard() {
         {[
           { id: "performance", icon: <Target size={20} />, label: "Semester" },
           { id: "notes", icon: <BookOpen size={20} />, label: "Notes" },
-          { id: "analytics", icon: <BarChart3 size={20} />, label: "Analytics" },
-          { id: "placement", icon: <Briefcase size={20} />, label: "Placements" },
+          // Analytics tab temporarily disabled — see activeTab === "analytics" render block above.
+          // { id: "analytics", icon: <BarChart3 size={20} />, label: "Analytics" },
           { id: "history", icon: <HistoryIcon size={20} />, label: "History" },
           { id: "simulator", icon: <Gamepad2 size={20} />, label: "Sim" },
         ].map((tab) => (
@@ -536,19 +541,6 @@ export default function StudentDashboard() {
           </button>
         ))}
       </nav>
-
-      <PinVerificationModal
-        isOpen={isPinModalOpen}
-        usn={stdUsn}
-        dob={student?.dob || ""}
-        onClose={() => setIsPinModalOpen(false)}
-        onSuccess={(jobId) => {
-          if (jobId) {
-            setSyncJobId(jobId);
-            setUpdateStatus("loading");
-          }
-        }}
-      />
     </div>
   );
 }

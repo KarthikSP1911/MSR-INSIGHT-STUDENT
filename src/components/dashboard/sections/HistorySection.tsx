@@ -5,7 +5,6 @@ import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import type { ExamHistoryEntry } from "@/lib/studentDetails";
 
 interface HistorySectionProps {
-  studentName: string;
   examHistory: ExamHistoryEntry[];
   selectedHistoryIdx: number;
   setSelectedHistoryIdx: (idx: number) => void;
@@ -14,7 +13,6 @@ interface HistorySectionProps {
 }
 
 export default function HistorySection({
-  studentName,
   examHistory,
   selectedHistoryIdx,
   setSelectedHistoryIdx,
@@ -24,7 +22,7 @@ export default function HistorySection({
   if (examHistory.length === 0) {
     return (
       <div className="tab-content">
-        <DashboardHeader name={studentName} sectionTitle="Exam History" sectionSubtitle="Complete record of your academic performance" />
+        <DashboardHeader sectionTitle="Exam History" sectionSubtitle="Complete record of your academic performance" />
         <div className="empty-history">
           <History size={48} color="var(--text-muted)" />
           <h3>No exam history available</h3>
@@ -37,7 +35,7 @@ export default function HistorySection({
 
   return (
     <div className="tab-content">
-      <DashboardHeader name={studentName} sectionTitle="Exam History" sectionSubtitle="Complete record of your academic performance" />
+      <DashboardHeader sectionTitle="Exam History" sectionSubtitle="Complete record of your academic performance" />
 
       <div className="history-tab-container">
         <div className="mobile-history-selector">
