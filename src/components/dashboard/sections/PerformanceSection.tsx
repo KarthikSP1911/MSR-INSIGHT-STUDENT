@@ -108,6 +108,44 @@ const AttendanceTooltip = ({ active, payload }: ChartTooltipProps) => {
   return null;
 };
 
+interface MobileBarListItem {
+  subject: Subject;
+  value: number;
+  max: number;
+  color: string;
+  valueText: string;
+}
+
+/** Mobile-only replacement for the recharts vertical bar charts above — a plain vertical
+ * list of horizontal bars, toggled against `.chart-view-desktop` purely via CSS (see
+ * StudentDashboard.css) so there's no layout/hydration flash and no JS breakpoint check. */
+const MobileBarList = ({ items, onSelectSubject }: { items: MobileBarListItem[]; onSelectSubject: (subject: Subject) => void }) => (
+  <div className="chart-view-mobile-bars" role="list">
+    {items.map(({ subject, value, max, color, valueText }) => (
+      <button
+        key={subject.code}
+        type="button"
+        className="mobile-bar-row"
+        role="listitem"
+        onClick={() => onSelectSubject(subject)}
+      >
+        <span className="mobile-bar-name">{subject.name}</span>
+        <span className="mobile-bar-track-wrap">
+          <span className="mobile-bar-track">
+            <span
+              className="mobile-bar-fill"
+              style={{ width: `${max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0}%`, backgroundColor: color }}
+            />
+          </span>
+          <span className="mobile-bar-value" style={{ color }}>
+            {valueText}
+          </span>
+        </span>
+      </button>
+    ))}
+  </div>
+);
+
 const MarksTooltip = ({ active, payload }: ChartTooltipProps) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
@@ -222,7 +260,8 @@ export default function PerformanceSection({
             <h3 className="chart-title">Attendance Overview</h3>
             <p className="chart-subtitle">Subject-wise attendance for this semester</p>
           </div>
-          <div className="chart-body">
+          <div className="chart-body chart-body--responsive">
+            <div className="chart-view-desktop">
             <ResponsiveContainer width="100%" height={Math.max(280, currentSem.length * SUBJECT_ROW_HEIGHT + 60)}>
               <BarChart
                 layout="vertical"
@@ -288,6 +327,17 @@ export default function PerformanceSection({
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+            </div>
+            <MobileBarList
+              items={currentSem.map((s) => ({
+                subject: s,
+                value: s.attendance || 0,
+                max: 100,
+                color: getAttendanceBarColor(s.attendance || 0),
+                valueText: `${Math.round(s.attendance || 0)}%`,
+              }))}
+              onSelectSubject={onSelectSubject}
+            />
           </div>
         </div>
 
@@ -298,7 +348,8 @@ export default function PerformanceSection({
               <p className="chart-subtitle">Subject-wise CIE scores out of 50</p>
             </div>
           </div>
-          <div className="chart-body">
+          <div className="chart-body chart-body--responsive">
+            <div className="chart-view-desktop">
             <ResponsiveContainer width="100%" height={Math.max(280, currentSem.length * CIE_ROW_HEIGHT + 60)}>
               <BarChart
                 layout="vertical"
@@ -354,6 +405,17 @@ export default function PerformanceSection({
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+            </div>
+            <MobileBarList
+              items={currentSem.map((s) => ({
+                subject: s,
+                value: s.marks || 0,
+                max: 50,
+                color: getCieBarColor(s.marks || 0),
+                valueText: `${Math.round(s.marks || 0)}/50`,
+              }))}
+              onSelectSubject={onSelectSubject}
+            />
           </div>
         </div>
 

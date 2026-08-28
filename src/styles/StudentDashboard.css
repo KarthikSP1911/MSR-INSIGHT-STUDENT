@@ -491,6 +491,82 @@
     height: 380px;
 }
 
+/* Attendance/CIE charts: recharts layout on desktop, a plain vertical bar list on mobile
+   (toggled purely by CSS so there's no JS breakpoint check or hydration flash). */
+.chart-view-mobile-bars {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .chart-body.chart-body--responsive {
+        height: auto;
+    }
+
+    .chart-view-desktop {
+        display: none;
+    }
+
+    .chart-view-mobile-bars {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .mobile-bar-row {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        width: 100%;
+        padding: 10px 12px;
+        background: var(--bg-card, #1B2333);
+        border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+        border-radius: 10px;
+        text-align: left;
+        cursor: pointer;
+        font: inherit;
+        color: inherit;
+    }
+
+    .mobile-bar-name {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-primary, #F8FAFC);
+        line-height: 1.3;
+        white-space: normal;
+        overflow-wrap: break-word;
+    }
+
+    .mobile-bar-track-wrap {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .mobile-bar-track {
+        flex: 1 1 auto;
+        min-width: 0;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--bg-primary, rgba(255, 255, 255, 0.06));
+        overflow: hidden;
+    }
+
+    .mobile-bar-fill {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        transition: width 0.3s ease;
+    }
+
+    .mobile-bar-value {
+        flex: 0 0 auto;
+        font-size: 12px;
+        font-weight: 700;
+        min-width: 44px;
+        text-align: right;
+    }
+}
+
 /* Subjects Data Table replacement for Subjects Grid */
 .dashboard-table-container {
     background: var(--bg-card, #1B2333);
