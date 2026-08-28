@@ -29,6 +29,11 @@ export function useScrapeJobPolling(jobId: string | null) {
   const query = useQuery<ScrapeJobStatusResponse>({
     queryKey: ["scrapeJob", jobId],
     enabled: !!jobId,
+    // Mobile browsers commonly drop/throttle background-tab requests (app-switch, screen
+    // lock), so a transient failure here is expected, not exceptional — retry a few times
+    // before giving up rather than surfacing a stall as a hard error on the first blip.
+    retry: 3,
+    retryDelay: 2000,
     queryFn: async () => {
       const res = await fetch(`/api/scrape-jobs/${jobId}`);
       const body = await res.json();
@@ -42,6 +47,11 @@ export function useScrapeJobPolling(jobId: string | null) {
       if (!status || TERMINAL_STATUSES.includes(status)) return false;
       return 2000;
     },
+    // Keep polling (and retry immediately) once the tab/app comes back to the foreground —
+    // on mobile the OS can fully suspend a backgrounded tab's timers, so without this the
+    // poll can silently stop until the user notices and manually refreshes.
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   // Which jobId (if any) has been polled past MAX_POLL_MS without reaching a terminal
@@ -56,10 +66,15 @@ export function useScrapeJobPolling(jobId: string | null) {
   }, [jobId]);
 
   const timedOut = timedOutJobId !== null && timedOutJobId === jobId;
-  const status = timedOut ? "failed" : query.data?.status ?? null;
+  // query.isError means every retry above was exhausted (e.g. the session cookie went stale
+  // mid-sync, or the network never recovered) — surface that as a terminal failure right away
+  // rather than making the user wait out the full MAX_POLL_MS backstop for the same outcome.
+  const status = timedOut || query.isError ? "failed" : query.data?.status ?? null;
   const error = timedOut
     ? "This is taking longer than expected. Please try updating again in a few minutes."
-    : query.data?.error ?? null;
+    : query.isError
+      ? "Lost connection while checking your sync status. Please try again."
+      : query.data?.error ?? null;
 
   return {
     status,

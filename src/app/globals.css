@@ -266,6 +266,14 @@ p {
   justify-content: center;
 }
 
+.fresh-loading-message {
+  margin-top: 1.25rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 0 1.5rem;
+}
+
 .logo-pulse-container {
   display: flex;
   align-items: center;

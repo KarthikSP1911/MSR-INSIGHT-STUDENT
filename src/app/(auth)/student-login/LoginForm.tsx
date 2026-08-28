@@ -98,14 +98,16 @@ export default function LoginForm() {
   const [month, setMonth] = useState("");
   const [year, setYear] = useState("");
 
-  const [showSecondaryAuth, setShowSecondaryAuth] = useState(false);
+  // Seeded lazily from ?error= — carried here when a first-time login's scrape
+  // failed (wrong USN/DOB/PIN) and the dashboard bounced back with the reason.
+  const [error, setError] = useState(() => searchParams.get("error") || "");
+  // Reopen the PIN section immediately when bounced back with an error, so the
+  // student can correct and resubmit without an extra click through the toggle.
+  const [showSecondaryAuth, setShowSecondaryAuth] = useState(() => Boolean(searchParams.get("error")));
   const [authType, setAuthType] = useState("Father's Mobile");
   const [last4Digits, setLast4Digits] = useState("");
 
   const [loading, setLoading] = useState(false);
-  // Seeded lazily from ?error= — carried here when a first-time login's scrape
-  // failed (wrong USN/DOB/PIN) and the dashboard bounced back with the reason.
-  const [error, setError] = useState(() => searchParams.get("error") || "");
   const [infoMsg, setInfoMsg] = useState("");
 
   const days = Array.from({ length: 31 }, (_, i) => String(i + 1));
@@ -269,12 +271,14 @@ export default function LoginForm() {
               <div className="form-group">
                 <label className="form-label">Last 4 Digits</label>
                 <input
-                  type="password"
+                  type="text"
+                  inputMode="numeric"
                   maxLength={4}
                   className="input-field pin-input"
                   value={last4Digits}
                   onChange={(e) => setLast4Digits(e.target.value.replace(/\D/g, ""))}
                   placeholder="••••"
+                  autoComplete="off"
                 />
               </div>
             </div>
