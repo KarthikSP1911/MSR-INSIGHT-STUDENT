@@ -1,27 +1,12 @@
 import { eq } from "drizzle-orm";
 import type { Browser } from "puppeteer";
 
-import { decryptText, encryptText } from "@/lib/auth/crypto";
+import { encryptText } from "@/lib/auth/crypto";
 import { students, type ScrapeJobScope } from "@/lib/db/schema";
 import type { WorkerDb } from "@/lib/db/workerClient";
 import type { StudentDetails } from "@/lib/studentDetails";
-import {
-  getCompleteStudentData,
-  tryWarmResync,
-  WarmSessionInvalidError,
-  type CompleteStudentData,
-  type ScrapeTimings,
-} from "./puppeteerClient";
+import { getCompleteStudentData, type ScrapeTimings } from "./puppeteerClient";
 import { parseAndProcessData } from "./htmlParser";
-
-/**
- * The portal's session cookie has no known fixed lifetime (see tryWarmResync's own doc
- * comment), so this is a conservative guess at how long it's worth even attempting reuse
- * before just going straight to a full login — not a claim about the portal's real idle
- * timeout. Getting this wrong only costs one extra doomed HTTP request; `tryWarmResync`'s
- * fallback to a full login is what actually guarantees correctness.
- */
-const WARM_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
 
 /**
  * A `recurring`-scope scrape never fetched the exam-history page, so `fresh.exam_history`/
@@ -70,7 +55,7 @@ export interface ScrapeAndSyncResult {
   details: StudentDetails;
   subjectsCount: number;
   examHistoryCount: number;
-  timings: ScrapeTimings & { parseMs: number; dbMs: number; warmSession: boolean };
+  timings: ScrapeTimings & { parseMs: number; dbMs: number };
 }
 
 /**
@@ -92,34 +77,18 @@ export async function scrapeAndSyncStudent(
 ): Promise<ScrapeAndSyncResult> {
   const { day, month, year } = parseDobParts(dob);
 
-  const [existing] = await db
-    .select({
-      details: students.details,
-      portalSessionCookie: students.portalSessionCookie,
-      portalSessionUpdatedAt: students.portalSessionUpdatedAt,
-    })
-    .from(students)
-    .where(eq(students.usn, usn));
+  const [existing] = await db.select({ details: students.details }).from(students).where(eq(students.usn, usn));
 
-  let result: CompleteStudentData | null = null;
-  let warmSession = false;
-  const cookieAgeMs = existing?.portalSessionUpdatedAt
-    ? Date.now() - existing.portalSessionUpdatedAt.getTime()
-    : Infinity;
-  if (existing?.portalSessionCookie && cookieAgeMs < WARM_SESSION_MAX_AGE_MS) {
-    try {
-      result = await tryWarmResync(decryptText(existing.portalSessionCookie), scope);
-      warmSession = true;
-    } catch (err) {
-      if (!(err instanceof WarmSessionInvalidError)) throw err;
-      // Fall through to a full Puppeteer login below.
-    }
-  }
-
-  if (!result) {
-    result = await getCompleteStudentData(usn, day, month, year, authType, plainPin, sharedBrowser, scope);
-  }
-  const { data: scrapedData, timings, sessionCookie } = result;
+  const { data: scrapedData, timings } = await getCompleteStudentData(
+    usn,
+    day,
+    month,
+    year,
+    authType,
+    plainPin,
+    sharedBrowser,
+    scope,
+  );
 
   const tParseStart = Date.now();
   const freshDetails = parseAndProcessData(scrapedData);
@@ -135,8 +104,6 @@ export async function scrapeAndSyncStudent(
       dob,
       authType,
       encryptedPin: encryptText(plainPin),
-      portalSessionCookie: encryptText(sessionCookie),
-      portalSessionUpdatedAt: new Date(),
       currentYear: details.current_year ?? 0,
       details,
       updatedAt: new Date(),
@@ -148,6 +115,6 @@ export async function scrapeAndSyncStudent(
     details,
     subjectsCount: details.subjects?.length ?? 0,
     examHistoryCount: details.exam_history?.length ?? 0,
-    timings: { ...timings, parseMs, dbMs, warmSession },
+    timings: { ...timings, parseMs, dbMs },
   };
 }

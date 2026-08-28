@@ -33,12 +33,7 @@ export interface ScrapeTimings {
 export interface CompleteStudentData {
   data: ScrapedData;
   timings: ScrapeTimings;
-  /** The portal session cookie used for this scrape's sub-page fetches — persisted by the caller for a future warm resync. */
-  sessionCookie: string;
 }
-
-/** Thrown by `tryWarmResync` when the stored session cookie is no longer accepted by the portal — callers should fall back to a full Puppeteer login, not fail the job. */
-export class WarmSessionInvalidError extends Error {}
 
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
@@ -214,52 +209,7 @@ async function buildResultFromDashboard(
     bytesDownloaded,
   };
 
-  return { data: scrapedData, timings, sessionCookie: cookieString };
-}
-
-/**
- * Attempts a scrape using a previously-persisted session cookie, with no browser involved at
- * all — a plain HTTP GET of the dashboard, reusing whatever session the portal still honours.
- *
- * NOTE: the portal's login cookie (confirmed via live network capture) carries no Expires/
- * Max-Age — it's a plain session cookie whose real lifetime is an unknown, server-side idle
- * timeout. This function can't know in advance whether the cookie is still good, so it always
- * just tries the request and reads the result: dashboard markers present → valid, redirected
- * to (or rendered) the login page → `WarmSessionInvalidError`, which the caller
- * (scrapeAndSync.ts) catches and falls back to a full Puppeteer login for. That fallback is
- * the correctness backstop this whole path leans on.
- */
-export async function tryWarmResync(cookieString: string, scope: "recurring" | "full"): Promise<CompleteStudentData> {
-  const tStart = Date.now();
-  const axiosInstance = axios.create({
-    timeout: 10000,
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-      Cookie: cookieString,
-    },
-    httpsAgent: keepAliveAgent,
-    maxRedirects: 0,
-    validateStatus: () => true,
-  });
-
-  let content: string;
-  let status: number;
-  try {
-    const resp = await axiosInstance.get<string>("https://parents.msrit.edu/newparents/index.php");
-    content = typeof resp.data === "string" ? resp.data : "";
-    status = resp.status;
-  } catch {
-    throw new WarmSessionInvalidError("Warm-resync request to the portal failed");
-  }
-  const dashboardMs = Date.now() - tStart;
-
-  const isRedirect = status >= 300 && status < 400;
-  const hasLogout = content.toUpperCase().includes("LOGOUT") && !hasLoginErrorText(content);
-  if (isRedirect || !hasLogout || hasLoginErrorText(content)) {
-    throw new WarmSessionInvalidError("Stored portal session is no longer valid");
-  }
-
-  return buildResultFromDashboard(content, cookieString, scope, /* requestCountSoFar */ 1, /* browserMs */ 0, /* loginMs */ 0, dashboardMs);
+  return { data: scrapedData, timings };
 }
 
 export const getCompleteStudentData = async (

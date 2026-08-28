@@ -29,12 +29,6 @@ export const students = pgTable("students", {
   currentYear: integer("current_year").notNull().default(0),
   authType: text("auth_type"), // "Father's Mobile" | "Mother's Mobile" | "ABC ID"
   encryptedPin: text("encrypted_pin"), // AES-256-GCM "iv:authTag:cipher" hex
-  // Portal session cookie, encrypted at rest the same way as encryptedPin (it's a bearer
-  // credential for the live portal session, so it gets the same protection). Lets a resync
-  // skip the Puppeteer login entirely when still fresh — see scrapeAndSync.ts's warm-resync
-  // path — falling back to a full login on any sign the session has expired.
-  portalSessionCookie: text("portal_session_cookie"),
-  portalSessionUpdatedAt: timestamp("portal_session_updated_at", { withTimezone: true }),
   details: jsonb("details").$type<StudentDetails>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
