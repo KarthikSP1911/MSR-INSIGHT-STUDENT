@@ -491,9 +491,11 @@
     height: 380px;
 }
 
-/* Attendance/CIE charts: recharts layout on desktop, a plain vertical bar list on mobile
-   (toggled purely by CSS so there's no JS breakpoint check or hydration flash). */
-.chart-view-mobile-bars {
+/* Attendance/CIE charts: recharts layout on desktop, a custom inline-labeled horizontal
+   bar chart on mobile (no separate axis column — each bar carries its own name/value so
+   nothing gets truncated or squashed) — toggled purely by CSS so there's no JS breakpoint
+   check or hydration flash. */
+.chart-view-mobile {
     display: none;
 }
 
@@ -506,64 +508,94 @@
         display: none;
     }
 
-    .chart-view-mobile-bars {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
+    .chart-view-mobile {
+        display: block;
+        width: 100%;
     }
 
-    .mobile-bar-row {
+    .mobile-chart-plot {
+        position: relative;
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 8px;
+    }
+
+    /* Dashed marker at the pass/attendance threshold, spanning the full stack of bars — the
+       mobile equivalent of the desktop chart's ReferenceLine. */
+    .mobile-chart-threshold {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        border-left: 1px dashed var(--warning, #F59E0B);
+        opacity: 0.7;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .mobile-chart-row {
+        position: relative;
+        display: block;
         width: 100%;
-        padding: 10px 12px;
-        background: var(--bg-card, #1B2333);
-        border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-        border-radius: 10px;
+        border: none;
+        border-radius: 8px;
+        background: var(--bg-primary, rgba(255, 255, 255, 0.06));
+        overflow: hidden;
+        padding: 0;
+        margin: 0;
         text-align: left;
         cursor: pointer;
         font: inherit;
         color: inherit;
     }
 
-    .mobile-bar-name {
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--text-primary, #F8FAFC);
-        line-height: 1.3;
-        white-space: normal;
-        overflow-wrap: break-word;
-    }
-
-    .mobile-bar-track-wrap {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .mobile-bar-track {
-        flex: 1 1 auto;
-        min-width: 0;
-        height: 10px;
-        border-radius: 999px;
-        background: var(--bg-primary, rgba(255, 255, 255, 0.06));
-        overflow: hidden;
-    }
-
-    .mobile-bar-fill {
+    .mobile-chart-fill {
+        position: absolute;
+        inset: 0;
         display: block;
-        height: 100%;
-        border-radius: 999px;
         transition: width 0.3s ease;
     }
 
-    .mobile-bar-value {
+    /* Sits above the fill+track on every row so name/value text keeps strong, consistent
+       contrast no matter how far the colored fill extends behind it. */
+    .mobile-chart-row-content {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-height: 40px;
+        padding: 8px 10px;
+        background: rgba(0, 0, 0, 0.35);
+    }
+
+    .mobile-chart-name {
+        flex: 1 1 auto;
+        min-width: 0;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.35;
+        white-space: normal;
+        overflow-wrap: break-word;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+    }
+
+    .mobile-chart-value {
         flex: 0 0 auto;
+        color: #fff;
         font-size: 12px;
         font-weight: 700;
-        min-width: 44px;
-        text-align: right;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+    }
+
+    .mobile-chart-axis {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 8px;
+        padding: 0 2px;
+        font-size: 10px;
+        color: var(--text-muted, #94A3B8);
     }
 }
 

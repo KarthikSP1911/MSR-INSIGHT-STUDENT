@@ -108,44 +108,6 @@ const AttendanceTooltip = ({ active, payload }: ChartTooltipProps) => {
   return null;
 };
 
-interface MobileBarListItem {
-  subject: Subject;
-  value: number;
-  max: number;
-  color: string;
-  valueText: string;
-}
-
-/** Mobile-only replacement for the recharts vertical bar charts above — a plain vertical
- * list of horizontal bars, toggled against `.chart-view-desktop` purely via CSS (see
- * StudentDashboard.css) so there's no layout/hydration flash and no JS breakpoint check. */
-const MobileBarList = ({ items, onSelectSubject }: { items: MobileBarListItem[]; onSelectSubject: (subject: Subject) => void }) => (
-  <div className="chart-view-mobile-bars" role="list">
-    {items.map(({ subject, value, max, color, valueText }) => (
-      <button
-        key={subject.code}
-        type="button"
-        className="mobile-bar-row"
-        role="listitem"
-        onClick={() => onSelectSubject(subject)}
-      >
-        <span className="mobile-bar-name">{subject.name}</span>
-        <span className="mobile-bar-track-wrap">
-          <span className="mobile-bar-track">
-            <span
-              className="mobile-bar-fill"
-              style={{ width: `${max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0}%`, backgroundColor: color }}
-            />
-          </span>
-          <span className="mobile-bar-value" style={{ color }}>
-            {valueText}
-          </span>
-        </span>
-      </button>
-    ))}
-  </div>
-);
-
 const MarksTooltip = ({ active, payload }: ChartTooltipProps) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
@@ -168,6 +130,56 @@ const MarksTooltip = ({ active, payload }: ChartTooltipProps) => {
   }
   return null;
 };
+
+interface MobileInlineBarItem {
+  subject: Subject;
+  value: number;
+  max: number;
+  color: string;
+  valueText: string;
+}
+
+/** Mobile version of the Attendance/CIE bar charts. Still the same horizontal-bar
+ * visualization as desktop (bars proportional to value on a shared scale), but with the
+ * subject axis column dropped — instead each bar carries its own name and value directly
+ * on top of itself, so long names never get truncated or squashed into a narrow axis
+ * column. A full-row scrim sits between the bar (fill+track) and the text on every row,
+ * so name/value contrast stays strong regardless of how far the colored fill extends
+ * behind them. Toggled against `.chart-view-desktop` purely via CSS. */
+const MobileInlineBarChart = ({
+  items,
+  thresholdPct,
+  axisLabels,
+  onSelectSubject,
+}: {
+  items: MobileInlineBarItem[];
+  thresholdPct: number;
+  axisLabels: string[];
+  onSelectSubject: (subject: Subject) => void;
+}) => (
+  <div className="chart-view-mobile">
+    <div className="mobile-chart-plot">
+      <span className="mobile-chart-threshold" style={{ left: `${thresholdPct}%` }} />
+      {items.map(({ subject, value, max, color, valueText }) => {
+        const pct = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
+        return (
+          <button key={subject.code} type="button" className="mobile-chart-row" onClick={() => onSelectSubject(subject)}>
+            <span className="mobile-chart-fill" style={{ width: `${pct}%`, backgroundColor: color }} />
+            <span className="mobile-chart-row-content">
+              <span className="mobile-chart-name">{subject.name}</span>
+              <span className="mobile-chart-value">{valueText}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+    <div className="mobile-chart-axis">
+      {axisLabels.map((label) => (
+        <span key={label}>{label}</span>
+      ))}
+    </div>
+  </div>
+);
 
 export default function PerformanceSection({
   currentSem,
@@ -328,7 +340,7 @@ export default function PerformanceSection({
               </BarChart>
             </ResponsiveContainer>
             </div>
-            <MobileBarList
+            <MobileInlineBarChart
               items={currentSem.map((s) => ({
                 subject: s,
                 value: s.attendance || 0,
@@ -336,6 +348,8 @@ export default function PerformanceSection({
                 color: getAttendanceBarColor(s.attendance || 0),
                 valueText: `${Math.round(s.attendance || 0)}%`,
               }))}
+              thresholdPct={75}
+              axisLabels={["0%", "50%", "100%"]}
               onSelectSubject={onSelectSubject}
             />
           </div>
@@ -406,7 +420,7 @@ export default function PerformanceSection({
               </BarChart>
             </ResponsiveContainer>
             </div>
-            <MobileBarList
+            <MobileInlineBarChart
               items={currentSem.map((s) => ({
                 subject: s,
                 value: s.marks || 0,
@@ -414,6 +428,8 @@ export default function PerformanceSection({
                 color: getCieBarColor(s.marks || 0),
                 valueText: `${Math.round(s.marks || 0)}/50`,
               }))}
+              thresholdPct={60}
+              axisLabels={["0", "25", "50"]}
               onSelectSubject={onSelectSubject}
             />
           </div>
