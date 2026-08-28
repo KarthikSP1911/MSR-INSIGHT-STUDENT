@@ -4,7 +4,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import Image from "next/image";
 
-const LoadingScreen = () => {
+const LoadingScreen = ({ message }: { message?: string }) => {
   return (
     <div className="fresh-loading-container">
       <div className="visual-core">
@@ -34,6 +34,7 @@ const LoadingScreen = () => {
           />
         </motion.div>
       </div>
+      {message && <p className="fresh-loading-message">{message}</p>}
     </div>
   );
 };

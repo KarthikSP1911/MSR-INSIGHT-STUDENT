@@ -350,6 +350,16 @@ export default function StudentDashboard() {
 
   if (loading || !student) return <LoadingScreen />;
 
+  // First-time login: the profile row exists (created up front so the login form can hand
+  // off a session) but nothing's been scraped yet — show a dedicated syncing screen instead
+  // of the full dashboard chrome around empty sections. The jobStatus effect above already
+  // bounces back to /student-login with an error once this either succeeds or gives up
+  // (worker timeout, MAX_POLL_MS client backstop, or a lost mobile connection), so this can't
+  // strand the student here indefinitely.
+  if (updateStatus === "loading" && !hasScrapedData(student.details)) {
+    return <LoadingScreen message="Verifying your details and syncing your portal data — this can take up to a minute." />;
+  }
+
   return (
     <div className="student-dashboard-container">
       <aside className="dashboard-sidebar">
