@@ -87,11 +87,29 @@ npm run db:generate / db:migrate / db:studio
 - **The encrypted PIN is never sent to the client.** MSR-Insight's `/api/auth/profile` returns it as-is; the equivalent route here strips it before responding.
 - **Scope**: this rebuild is student-only. There's no proctor login, proctor dashboard, or proctor-viewing-student mode. The printable PDF report page, AI-generated remarks, and email/WhatsApp-to-parents features (which depend on FastAPI+Groq, RabbitMQ, Resend, Twilio, and Cloudinary) are all out of scope — none of those services exist in this project.
 
+## Deployment
+
+- **Next.js app** → Vercel (free/Hobby tier). It never launches Puppeteer (only
+  `worker/scraper-worker.ts` does), so it deploys as a plain Next.js project — just set
+  `DATABASE_URL`, `JWT_SECRET`, `ENCRYPTION_SECRET`, and `PUPPETEER_SKIP_DOWNLOAD=1` (skips
+  a pointless Chromium download during `npm install`, since `puppeteer` is a shared
+  top-level dependency but unused by the app itself) as project env vars.
+- **Worker** → Render (free tier), built from `worker/Dockerfile` (installs a system
+  Chromium the container can actually run, since Puppeteer's own bundled-Chromium download
+  tends to fail on minimal Linux images). Render's free tier only offers Web Services (must
+  bind `$PORT`, sleeps after ~15 min idle) rather than a dedicated background-worker plan,
+  so the worker also serves a trivial `/health` endpoint — pair the deployed service with a
+  free external pinger (e.g. UptimeRobot, cron-job.org) hitting `/health` every ~10 minutes
+  to keep it awake. Set `DATABASE_URL`, `JWT_SECRET`, `ENCRYPTION_SECRET`, and keep
+  `SCRAPER_WORKER_CONCURRENCY=1` — the free instance's 512MB RAM doesn't comfortably fit
+  more than one concurrent Chromium tab.
+
 ## Future iteration: worker deployment
 
-The worker currently runs as a plain long-lived `tsx` process you start yourself (`npm run worker`), polling Postgres on a fixed interval. That's deliberately simple for now. Worth trying later, roughly in order of effort:
+The Render setup above is a pragmatic free-tier fit, not the ceiling. Worth trying later,
+roughly in order of effort:
 
-1. **Process supervision** — run it under `pm2`/`systemd`/a Docker container with restart-on-crash, instead of a bare terminal.
-2. **Faster job pickup** — Postgres `LISTEN/NOTIFY` instead of polling, so a freshly-enqueued job gets picked up immediately rather than waiting up to `POLL_INTERVAL_MS`.
-3. **A real queue service** (e.g. a managed queue, or reintroducing something like RabbitMQ) if scrape volume ever grows enough that a single polling worker becomes the bottleneck — not needed at the current scale.
-4. **Horizontal scaling** — the `FOR UPDATE SKIP LOCKED` claim query already makes it safe to run more than one worker instance concurrently, so this is mostly "just start a second process" whenever it's needed.
+1. **A paid always-on host** (Render's paid background-worker plan, a small VPS, Fly.io) —
+   removes the idle-sleep/pinger workaround entirely.
+2. **A real queue service** (e.g. a managed queue, or reintroducing something like RabbitMQ) if scrape volume ever grows enough that a single polling worker becomes the bottleneck — not needed at the current scale.
+3. **Horizontal scaling** — the `FOR UPDATE SKIP LOCKED` claim query already makes it safe to run more than one worker instance concurrently, so this is mostly "just start a second process" whenever it's needed.

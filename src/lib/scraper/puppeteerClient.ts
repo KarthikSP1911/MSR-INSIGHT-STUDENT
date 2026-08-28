@@ -234,6 +234,7 @@ export const getCompleteStudentData = async (
       browser = await puppeteer.launch({
         headless: true,
         args: PUPPETEER_LAUNCH_ARGS,
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       });
     }
 

@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createServer } from "node:http";
 import { eq } from "drizzle-orm";
 import { Client } from "pg";
 import puppeteer, { type Browser } from "puppeteer";
@@ -47,7 +48,12 @@ async function getOrLaunchBrowser(): Promise<Browser> {
   if (sharedBrowser && sharedBrowser.connected) return sharedBrowser;
   if (!browserLaunch) {
     browserLaunch = puppeteer
-      .launch({ headless: true, args: PUPPETEER_LAUNCH_ARGS, protocolTimeout: PROTOCOL_TIMEOUT_MS })
+      .launch({
+        headless: true,
+        args: PUPPETEER_LAUNCH_ARGS,
+        protocolTimeout: PROTOCOL_TIMEOUT_MS,
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      })
       .then((b) => {
         sharedBrowser = b;
         browserLaunch = null;
@@ -215,7 +221,20 @@ async function workerSlot(db: WorkerDb, slotId: number) {
   }
 }
 
+/** Render's free tier only offers Web Services, which must bind $PORT and pass health checks — this has no effect on local `npm run worker`, where PORT is unset. */
+function startHealthServerIfNeeded() {
+  const port = process.env.PORT;
+  if (!port) return;
+  createServer((_req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok" }));
+  }).listen(Number(port), () => {
+    console.log(`[scraper-worker] health check server listening on port ${port}`);
+  });
+}
+
 async function main() {
+  startHealthServerIfNeeded();
   const db = getWorkerDb();
 
   const shutdown = () => {
