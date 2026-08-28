@@ -23,33 +23,38 @@ export async function GET(_request: Request, { params }: { params: Promise<{ usn
     return NextResponse.json({ success: false, message: "Forbidden" }, { status: 403 });
   }
 
-  const db = getDb();
-  const [student] = await db.select().from(students).where(eq(students.usn, usn));
-  if (!student) {
-    return NextResponse.json({ success: false, message: "Student not found" }, { status: 404 });
+  try {
+    const db = getDb();
+    const [student] = await db.select().from(students).where(eq(students.usn, usn));
+    if (!student) {
+      return NextResponse.json({ success: false, message: "Student not found" }, { status: 404 });
+    }
+
+    if (hasScrapedData(student.details)) {
+      const { encryptedPin: _encryptedPin, ...safeStudent } = student;
+      return NextResponse.json({ success: true, source: "database", data: safeStudent });
+    }
+
+    if (!student.dob || !student.authType || !student.encryptedPin) {
+      return NextResponse.json(
+        { success: false, message: "No cached data and portal verification is required." },
+        { status: 400 },
+      );
+    }
+
+    const { decryptText } = await import("@/lib/auth/crypto");
+    const jobId = await enqueueScrapeJob(db, {
+      usn,
+      dob: student.dob,
+      authType: student.authType,
+      plainPin: decryptText(student.encryptedPin),
+      trigger: "manual_update",
+      scope: "full",
+    });
+
+    return NextResponse.json({ success: true, source: "scraper", data: { jobId } }, { status: 202 });
+  } catch (err) {
+    console.error(`[api/report/student/${usn}] failed:`, err);
+    return NextResponse.json({ success: false, message: "Could not load student report." }, { status: 500 });
   }
-
-  if (hasScrapedData(student.details)) {
-    const { encryptedPin: _encryptedPin, ...safeStudent } = student;
-    return NextResponse.json({ success: true, source: "database", data: safeStudent });
-  }
-
-  if (!student.dob || !student.authType || !student.encryptedPin) {
-    return NextResponse.json(
-      { success: false, message: "No cached data and portal verification is required." },
-      { status: 400 },
-    );
-  }
-
-  const { decryptText } = await import("@/lib/auth/crypto");
-  const jobId = await enqueueScrapeJob(db, {
-    usn,
-    dob: student.dob,
-    authType: student.authType,
-    plainPin: decryptText(student.encryptedPin),
-    trigger: "manual_update",
-    scope: "full",
-  });
-
-  return NextResponse.json({ success: true, source: "scraper", data: { jobId } }, { status: 202 });
 }

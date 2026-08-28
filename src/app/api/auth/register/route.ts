@@ -24,19 +24,24 @@ export async function POST(request: NextRequest) {
   const { dob } = parsed.data;
   const usn = parsed.data.usn.toUpperCase();
 
-  const db = getDb();
-  const [existing] = await db.select().from(students).where(eq(students.usn, usn));
-  if (existing) {
-    return NextResponse.json({ success: false, message: "User already exists" }, { status: 400 });
+  try {
+    const db = getDb();
+    const [existing] = await db.select().from(students).where(eq(students.usn, usn));
+    if (existing) {
+      return NextResponse.json({ success: false, message: "User already exists" }, { status: 400 });
+    }
+
+    await db.insert(students).values({ usn, dob, currentYear: 1, details: {} });
+
+    const token = await signStudentToken(usn);
+    await setSessionCookie(token);
+
+    return NextResponse.json(
+      { success: true, message: "User registered successfully", data: { usn } },
+      { status: 201 },
+    );
+  } catch (err) {
+    console.error(`[api/auth/register] failed for USN ${usn}:`, err);
+    return NextResponse.json({ success: false, message: "Registration failed. Please try again." }, { status: 500 });
   }
-
-  await db.insert(students).values({ usn, dob, currentYear: 1, details: {} });
-
-  const token = await signStudentToken(usn);
-  await setSessionCookie(token);
-
-  return NextResponse.json(
-    { success: true, message: "User registered successfully", data: { usn } },
-    { status: 201 },
-  );
 }

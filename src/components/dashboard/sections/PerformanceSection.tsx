@@ -148,18 +148,15 @@ interface MobileInlineBarItem {
  * behind them. Toggled against `.chart-view-desktop` purely via CSS. */
 const MobileInlineBarChart = ({
   items,
-  thresholdPct,
   axisLabels,
   onSelectSubject,
 }: {
   items: MobileInlineBarItem[];
-  thresholdPct: number;
   axisLabels: string[];
   onSelectSubject: (subject: Subject) => void;
 }) => (
   <div className="chart-view-mobile">
     <div className="mobile-chart-plot">
-      <span className="mobile-chart-threshold" style={{ left: `${thresholdPct}%` }} />
       {items.map(({ subject, value, max, color, valueText }) => {
         const pct = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
         return (
@@ -348,8 +345,7 @@ export default function PerformanceSection({
                 color: getAttendanceBarColor(s.attendance || 0),
                 valueText: `${Math.round(s.attendance || 0)}%`,
               }))}
-              thresholdPct={75}
-              axisLabels={["0%", "50%", "100%"]}
+              axisLabels={["0%", "25%", "50%", "75%", "100%"]}
               onSelectSubject={onSelectSubject}
             />
           </div>
@@ -428,7 +424,6 @@ export default function PerformanceSection({
                 color: getCieBarColor(s.marks || 0),
                 valueText: `${Math.round(s.marks || 0)}/50`,
               }))}
-              thresholdPct={60}
               axisLabels={["0", "25", "50"]}
               onSelectSubject={onSelectSubject}
             />

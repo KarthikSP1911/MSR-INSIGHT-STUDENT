@@ -140,8 +140,9 @@ export default function LoginForm() {
         setYear(y);
         setShowSecondaryAuth(true);
         setInfoMsg("Please re-verify your portal PIN to continue syncing your dashboard.");
-      } catch {
+      } catch (err) {
         // Session fetch failed — leave the form blank for a normal fresh login instead.
+        console.error("[LoginForm] relogin session fetch failed:", err);
       }
     })();
 
@@ -211,7 +212,8 @@ export default function LoginForm() {
 
       const jobId = result.data?.jobId as string | null | undefined;
       router.push(jobId ? `/student/dashboard?syncJobId=${jobId}` : "/student/dashboard");
-    } catch {
+    } catch (err) {
+      console.error("[LoginForm] login request failed:", err);
       setError("Invalid credentials or login failed");
       setLoading(false);
     }

@@ -13,19 +13,24 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params;
-  const db = getDb();
-  const [job] = await db.select().from(scrapeJobs).where(eq(scrapeJobs.id, id));
-  if (!job || job.usn !== sessionUsn) {
-    return NextResponse.json({ success: false, message: "Job not found" }, { status: 404 });
-  }
+  try {
+    const db = getDb();
+    const [job] = await db.select().from(scrapeJobs).where(eq(scrapeJobs.id, id));
+    if (!job || job.usn !== sessionUsn) {
+      return NextResponse.json({ success: false, message: "Job not found" }, { status: 404 });
+    }
 
-  return NextResponse.json({
-    success: true,
-    data: {
-      id: job.id,
-      status: job.status,
-      error: job.error,
-      resultSummary: job.resultSummary,
-    },
-  });
+    return NextResponse.json({
+      success: true,
+      data: {
+        id: job.id,
+        status: job.status,
+        error: job.error,
+        resultSummary: job.resultSummary,
+      },
+    });
+  } catch (err) {
+    console.error(`[api/scrape-jobs/${id}] failed:`, err);
+    return NextResponse.json({ success: false, message: "Could not fetch job status." }, { status: 500 });
+  }
 }

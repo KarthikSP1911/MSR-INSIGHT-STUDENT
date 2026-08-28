@@ -17,12 +17,17 @@ export async function GET() {
     return NextResponse.json({ success: false, message: "Not authenticated" }, { status: 401 });
   }
 
-  const db = getDb();
-  const [student] = await db.select().from(students).where(eq(students.usn, usn));
-  if (!student) {
-    return NextResponse.json({ success: false, message: "Student not found" }, { status: 404 });
-  }
+  try {
+    const db = getDb();
+    const [student] = await db.select().from(students).where(eq(students.usn, usn));
+    if (!student) {
+      return NextResponse.json({ success: false, message: "Student not found" }, { status: 404 });
+    }
 
-  const { encryptedPin: _encryptedPin, ...safeStudent } = student;
-  return NextResponse.json({ success: true, data: safeStudent });
+    const { encryptedPin: _encryptedPin, ...safeStudent } = student;
+    return NextResponse.json({ success: true, data: safeStudent });
+  } catch (err) {
+    console.error(`[api/auth/profile] failed for USN ${usn}:`, err);
+    return NextResponse.json({ success: false, message: "Could not load profile." }, { status: 500 });
+  }
 }

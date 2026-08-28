@@ -29,81 +29,86 @@ export async function POST(request: NextRequest) {
   const { dob, authType, last4Digits, forceResync } = parsed.data;
   const usn = parsed.data.usn.toUpperCase();
 
-  const db = getDb();
-  const [existing] = await db.select().from(students).where(eq(students.usn, usn));
+  try {
+    const db = getDb();
+    const [existing] = await db.select().from(students).where(eq(students.usn, usn));
 
-  // Only reject on a DOB mismatch once we have confirmed (successfully scraped) data to
-  // trust — an existing row with no scraped data is just an unverified placeholder from a
-  // prior failed first-login attempt (see scrapeAndSyncStudent's failure path), so a
-  // corrected retry with a different DOB is allowed to proceed and overwrite it.
-  if (existing && existing.dob !== dob && hasScrapedData(existing.details)) {
-    return NextResponse.json(
-      { success: false, message: "Invalid USN or Date of Birth." },
-      { status: 400 },
-    );
-  }
+    // Only reject on a DOB mismatch once we have confirmed (successfully scraped) data to
+    // trust — an existing row with no scraped data is just an unverified placeholder from a
+    // prior failed first-login attempt (see scrapeAndSyncStudent's failure path), so a
+    // corrected retry with a different DOB is allowed to proceed and overwrite it.
+    if (existing && existing.dob !== dob && hasScrapedData(existing.details)) {
+      return NextResponse.json(
+        { success: false, message: "Invalid USN or Date of Birth." },
+        { status: 400 },
+      );
+    }
 
-  const hasStoredPin = Boolean(existing?.encryptedPin);
-  const hasNewPinProvided = Boolean(last4Digits);
+    const hasStoredPin = Boolean(existing?.encryptedPin);
+    const hasNewPinProvided = Boolean(last4Digits);
 
-  // Instant login: cached scrape + stored PIN + no forced/new re-verification needed.
-  if (
-    existing &&
-    hasScrapedData(existing.details) &&
-    hasStoredPin &&
-    !forceResync &&
-    !hasNewPinProvided
-  ) {
+    // Instant login: cached scrape + stored PIN + no forced/new re-verification needed.
+    if (
+      existing &&
+      hasScrapedData(existing.details) &&
+      hasStoredPin &&
+      !forceResync &&
+      !hasNewPinProvided
+    ) {
+      const token = await signStudentToken(usn);
+      await setSessionCookie(token);
+      return NextResponse.json({
+        success: true,
+        message: "Login successful",
+        data: { usn, jobId: null },
+      });
+    }
+
+    const targetAuthType = authType || existing?.authType || undefined;
+    const targetPin = last4Digits || (existing?.encryptedPin ? decryptText(existing.encryptedPin) : "");
+
+    if (!targetPin || !targetAuthType) {
+      return NextResponse.json({
+        success: false,
+        requiresSecondaryAuth: true,
+        message:
+          "First-time login or PIN update requires secondary portal verification details (Father/Mother Mobile or ABC ID last 4 digits).",
+      });
+    }
+
+    if (!existing) {
+      await db.insert(students).values({ usn, dob, currentYear: 0, details: {} });
+    } else if (existing.dob !== dob) {
+      await db.update(students).set({ dob }).where(eq(students.usn, usn));
+    }
+
+    // Canonicalize here rather than trust the stored value as-is: `existing?.authType` may be a
+    // pre-this-app free-text variant ("mother", "mobile", ...) from before the login form's
+    // fixed 3-value dropdown existed — see normalizeAuthType's own doc comment.
+    //
+    // A login only needs fresh attendance + CIE — exam history is the one thing that doesn't
+    // change between logins (updated once per exam cycle, not throughout the semester like CIE
+    // marks) and is already on the existing row when there is one. A genuinely new student (no
+    // prior scrape to merge exam history back in from) still needs a full scrape.
+    const jobId = await enqueueScrapeJob(db, {
+      usn,
+      dob,
+      authType: normalizeAuthType(targetAuthType),
+      plainPin: targetPin,
+      trigger: "login",
+      scope: hasScrapedData(existing?.details) ? "recurring" : "full",
+    });
+
     const token = await signStudentToken(usn);
     await setSessionCookie(token);
+
     return NextResponse.json({
       success: true,
-      message: "Login successful",
-      data: { usn, jobId: null },
+      message: "Login successful — syncing your portal data",
+      data: { usn, jobId },
     });
+  } catch (err) {
+    console.error(`[api/auth/login] failed for USN ${usn}:`, err);
+    return NextResponse.json({ success: false, message: "Login failed. Please try again." }, { status: 500 });
   }
-
-  const targetAuthType = authType || existing?.authType || undefined;
-  const targetPin = last4Digits || (existing?.encryptedPin ? decryptText(existing.encryptedPin) : "");
-
-  if (!targetPin || !targetAuthType) {
-    return NextResponse.json({
-      success: false,
-      requiresSecondaryAuth: true,
-      message:
-        "First-time login or PIN update requires secondary portal verification details (Father/Mother Mobile or ABC ID last 4 digits).",
-    });
-  }
-
-  if (!existing) {
-    await db.insert(students).values({ usn, dob, currentYear: 0, details: {} });
-  } else if (existing.dob !== dob) {
-    await db.update(students).set({ dob }).where(eq(students.usn, usn));
-  }
-
-  // Canonicalize here rather than trust the stored value as-is: `existing?.authType` may be a
-  // pre-this-app free-text variant ("mother", "mobile", ...) from before the login form's
-  // fixed 3-value dropdown existed — see normalizeAuthType's own doc comment.
-  //
-  // A login only needs fresh attendance + CIE — exam history is the one thing that doesn't
-  // change between logins (updated once per exam cycle, not throughout the semester like CIE
-  // marks) and is already on the existing row when there is one. A genuinely new student (no
-  // prior scrape to merge exam history back in from) still needs a full scrape.
-  const jobId = await enqueueScrapeJob(db, {
-    usn,
-    dob,
-    authType: normalizeAuthType(targetAuthType),
-    plainPin: targetPin,
-    trigger: "login",
-    scope: hasScrapedData(existing?.details) ? "recurring" : "full",
-  });
-
-  const token = await signStudentToken(usn);
-  await setSessionCookie(token);
-
-  return NextResponse.json({
-    success: true,
-    message: "Login successful — syncing your portal data",
-    data: { usn, jobId },
-  });
 }

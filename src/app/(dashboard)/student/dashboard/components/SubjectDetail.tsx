@@ -65,7 +65,6 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [targetPct, setTargetPct] = useState(85);
-  const [showCalculator, setShowCalculator] = useState(false);
   const [showAssessments, setShowAssessments] = useState(false);
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
 
@@ -232,13 +231,6 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
           <div className="sd-card-header">
             <div>
               <h3 className="sd-card-title">Attendance</h3>
-              <p
-                className="sd-card-subtitle sd-mobile-show-inline"
-                style={{ color: "var(--accent-primary)", opacity: 0.8, cursor: "pointer", display: "block" }}
-                onClick={() => setShowCalculator((prev) => !prev)}
-              >
-                {showCalculator ? "Hide Calculator" : "Tap to Estimate Attendance"}
-              </p>
             </div>
             <div className="sd-cal-nav">
               <button className="sd-cal-nav-btn" onClick={goToPrev}>
@@ -292,7 +284,7 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
           </div>
         </section>
 
-        <section className={`sd-card sd-calc-card sd-calculation-card ${showCalculator ? "sd-expanded" : ""}`}>
+        <section className="sd-card sd-calc-card sd-calculation-card">
           <div className="sd-card-header">
             <div>
               <h3 className="sd-card-title">Attendance Calculator</h3>

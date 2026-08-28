@@ -300,7 +300,11 @@ export default function StudentDashboard() {
   };
 
   const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch (err) {
+      console.error("[dashboard] logout request failed:", err);
+    }
     router.push("/");
   };
 
@@ -336,7 +340,8 @@ export default function StudentDashboard() {
       }
 
       setSyncJobId(body.data.jobId);
-    } catch {
+    } catch (err) {
+      console.error("[dashboard] manual update request failed:", err);
       setUpdateStatus("error");
       setUpdateError("Update failed");
       setTimeout(() => setUpdateStatus(null), 3000);
