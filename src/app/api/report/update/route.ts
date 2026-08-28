@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
     authType: targetAuthType,
     plainPin: targetPin,
     trigger: "manual_update",
+    scope: "full",
   });
 
   return NextResponse.json({ success: true, allowed: true, data: { jobId } });

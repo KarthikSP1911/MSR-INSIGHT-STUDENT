@@ -120,6 +120,8 @@ export const getCompleteStudentData = async (
   last4Digits: string | undefined,
   /** Reuse a long-lived browser (the worker keeps one alive across jobs) instead of launching a fresh one per call. */
   sharedBrowser?: Browser,
+  /** `attendance` skips CIE and exam-history fetches entirely (caller merges those back in from the prior scrape) — see scrapeAndSync.ts. */
+  scope: "attendance" | "full" = "full",
 ): Promise<CompleteStudentData> => {
   const ownsBrowser = !sharedBrowser;
   let browser: Browser | null = sharedBrowser ?? null;
@@ -296,11 +298,15 @@ export const getCompleteStudentData = async (
     };
     for (const row of courseRows) {
       if (row.attLink) pushTarget(row.attLink, row.code, "attendance");
-      if (row.cieLink) pushTarget(row.cieLink, row.code, "cie");
+      // CIE doesn't change between logins — an `attendance`-scope job skips it, and the
+      // caller (scrapeAndSync.ts) merges the prior scrape's CIE data back in.
+      if (row.cieLink && scope === "full") pushTarget(row.cieLink, row.code, "cie");
     }
 
-    const examsUrl = "https://parents.msrit.edu/newparents/index.php?option=com_history&task=getResult";
-    urlToTargets.set(examsUrl, [{ courseCode: "EXAMS", type: "exams" }]);
+    if (scope === "full") {
+      const examsUrl = "https://parents.msrit.edu/newparents/index.php?option=com_history&task=getResult";
+      urlToTargets.set(examsUrl, [{ courseCode: "EXAMS", type: "exams" }]);
+    }
 
     // Placement pages (com_placement: eligibility/status/results/profile) are deliberately
     // never added to urlToTargets — the placement section is out of scope for this scraper

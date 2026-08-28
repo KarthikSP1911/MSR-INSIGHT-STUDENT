@@ -1,0 +1,1 @@
+ALTER TABLE "scrape_jobs" ADD COLUMN "scope" text DEFAULT 'full' NOT NULL;

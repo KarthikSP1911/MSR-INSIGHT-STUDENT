@@ -48,6 +48,14 @@ export const scrapeJobStatuses = ["pending", "running", "success", "failed"] as 
 export type ScrapeJobStatus = (typeof scrapeJobStatuses)[number];
 
 /**
+ * `attendance` fetches only the dashboard + per-course attendance pages (skips CIE and exam
+ * history entirely), then merges the previous scrape's CIE/exam data back in — see
+ * scrapeAndSync.ts. `full` fetches everything, same as the scraper's original behavior.
+ */
+export const scrapeJobScopes = ["attendance", "full"] as const;
+export type ScrapeJobScope = (typeof scrapeJobScopes)[number];
+
+/**
  * A queued scrape request, picked up by the standalone worker (worker/scraper-worker.ts).
  * `encryptedPin` is a snapshot of the PIN to use for this job, always encrypted at rest —
  * never store the plaintext PIN, even transiently, in this table.
@@ -63,6 +71,7 @@ export const scrapeJobs = pgTable(
     authType: text("auth_type"),
     encryptedPin: text("encrypted_pin"),
     trigger: text("trigger").notNull().$type<ScrapeJobTrigger>(),
+    scope: text("scope").notNull().$type<ScrapeJobScope>().default("full"),
     status: text("status").notNull().$type<ScrapeJobStatus>().default("pending"),
     error: text("error"),
     resultSummary: jsonb("result_summary"),

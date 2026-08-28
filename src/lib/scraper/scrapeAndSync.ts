@@ -2,11 +2,34 @@ import { eq } from "drizzle-orm";
 import type { Browser } from "puppeteer";
 
 import { encryptText } from "@/lib/auth/crypto";
-import { students } from "@/lib/db/schema";
+import { students, type ScrapeJobScope } from "@/lib/db/schema";
 import type { WorkerDb } from "@/lib/db/workerClient";
 import type { StudentDetails } from "@/lib/studentDetails";
 import { getCompleteStudentData, type ScrapeTimings } from "./puppeteerClient";
 import { parseAndProcessData } from "./htmlParser";
+
+/**
+ * An `attendance`-scope scrape never fetched CIE/exam-history HTML, so `fresh` has those
+ * fields blank/defaulted — restore them from the previous scrape rather than persist a wipe.
+ * New courses (not present in `previous`) legitimately have no CIE data yet, so they keep
+ * whatever `fresh` computed (zero/empty), same as if the fetch had failed and returned "".
+ */
+function mergeAttendanceOnlyScrape(fresh: StudentDetails, previous: StudentDetails | undefined): StudentDetails {
+  if (!previous) return fresh;
+
+  const prevSubjectsByCode = new Map((previous.subjects ?? []).map((s) => [s.code, s]));
+  const subjects = (fresh.subjects ?? []).map((s) => {
+    const prev = prevSubjectsByCode.get(s.code);
+    return prev ? { ...s, marks: prev.marks, assessments: prev.assessments } : s;
+  });
+
+  return {
+    ...fresh,
+    subjects,
+    exam_history: previous.exam_history ?? fresh.exam_history,
+    cgpa: previous.cgpa ?? fresh.cgpa,
+  };
+}
 
 /** Parses "DD-MM-YYYY" or "YYYY-MM-DD" (also accepts ISO strings) into portal form-field parts. */
 export function parseDobParts(dobString: string): { day: string; month: string; year: string } {
@@ -55,6 +78,8 @@ export async function scrapeAndSyncStudent(
   plainPin: string,
   /** The worker's long-lived browser, reused across jobs instead of relaunching Chromium per job. */
   sharedBrowser?: Browser,
+  /** `attendance` skips CIE/exam-history fetches and merges them back in from the existing row; `full` re-fetches everything. */
+  scope: ScrapeJobScope = "full",
 ): Promise<ScrapeAndSyncResult> {
   const { day, month, year } = parseDobParts(dob);
 
@@ -66,13 +91,20 @@ export async function scrapeAndSyncStudent(
     authType,
     plainPin,
     sharedBrowser,
+    scope,
   );
 
   const tParseStart = Date.now();
-  const details = parseAndProcessData(scrapedData);
+  const freshDetails = parseAndProcessData(scrapedData);
   const parseMs = Date.now() - tParseStart;
 
   const tDbStart = Date.now();
+  let details = freshDetails;
+  if (scope === "attendance") {
+    const [existing] = await db.select({ details: students.details }).from(students).where(eq(students.usn, usn));
+    details = mergeAttendanceOnlyScrape(freshDetails, existing?.details);
+  }
+
   await db
     .update(students)
     .set({

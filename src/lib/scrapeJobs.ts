@@ -1,7 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import type { Db } from "@/lib/db/client";
-import { scrapeJobs, type ScrapeJobTrigger } from "@/lib/db/schema";
+import { scrapeJobs, type ScrapeJobScope, type ScrapeJobTrigger } from "@/lib/db/schema";
 import { encryptText } from "@/lib/auth/crypto";
 
 export interface EnqueueScrapeJobInput {
@@ -11,6 +11,8 @@ export interface EnqueueScrapeJobInput {
   /** Plain-text PIN — encrypted before it ever touches the row. */
   plainPin?: string | null;
   trigger: ScrapeJobTrigger;
+  /** `attendance` (cheaper — skips CIE/exam fetches, merging them back in from the prior scrape) or `full`. Defaults to `full`. */
+  scope?: ScrapeJobScope;
 }
 
 /** Postgres SQLSTATE for a unique-constraint violation — surfaced as `.code` by both the `pg` and `@neondatabase/serverless` drivers. */
@@ -38,6 +40,7 @@ export async function enqueueScrapeJob(db: Db, input: EnqueueScrapeJobInput): Pr
         authType: input.authType ?? null,
         encryptedPin: input.plainPin ? encryptText(input.plainPin) : null,
         trigger: input.trigger,
+        scope: input.scope ?? "full",
         status: "pending",
       })
       .returning({ id: scrapeJobs.id });

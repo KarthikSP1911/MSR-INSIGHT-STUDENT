@@ -48,6 +48,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ usn
     authType: student.authType,
     plainPin: decryptText(student.encryptedPin),
     trigger: "manual_update",
+    scope: "full",
   });
 
   return NextResponse.json({ success: true, source: "scraper", data: { jobId } }, { status: 202 });

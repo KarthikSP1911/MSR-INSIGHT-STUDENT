@@ -149,7 +149,7 @@ async function processJob(
     }
 
     const result = await withTimeout(
-      scrapeAndSyncStudent(db, job.usn, job.dob, job.authType, plainPin, browser),
+      scrapeAndSyncStudent(db, job.usn, job.dob, job.authType, plainPin, browser, job.scope),
       JOB_TIMEOUT_MS,
       `Scrape job ${job.id}`,
     );
