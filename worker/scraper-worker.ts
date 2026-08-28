@@ -6,6 +6,7 @@ import { decryptText } from "@/lib/auth/crypto";
 import { getWorkerDb, type WorkerDb } from "@/lib/db/workerClient";
 import { scrapeJobs } from "@/lib/db/schema";
 import { scrapeAndSyncStudent } from "@/lib/scraper/scrapeAndSync";
+import { PUPPETEER_LAUNCH_ARGS } from "@/lib/scraper/puppeteerClient";
 
 /**
  * Standalone scraper worker. Runs Puppeteer against the college portal
@@ -35,7 +36,7 @@ async function getOrLaunchBrowser(current: Browser | null): Promise<Browser> {
   if (current && current.connected) return current;
   return puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: PUPPETEER_LAUNCH_ARGS,
     protocolTimeout: PROTOCOL_TIMEOUT_MS,
   });
 }

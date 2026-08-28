@@ -53,6 +53,23 @@ const resolveParentsUrl = (href: string | undefined): string => {
 const BLOCKED_RESOURCE_TYPES = new Set(["image", "stylesheet", "font", "media"]);
 
 /**
+ * Shared with worker/scraper-worker.ts's own `puppeteer.launch()` so both launch paths stay
+ * in sync. Deliberately does NOT disable JavaScript or block `script` requests — the login
+ * form embeds a live reCAPTCHA v2 widget (confirmed via live network capture against
+ * parents.msrit.edu) that requires the page's own JS to run, so a pure-HTTP or
+ * script-blocked login is not viable here.
+ */
+export const PUPPETEER_LAUNCH_ARGS = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-gpu",
+  "--disable-extensions",
+  "--disable-background-networking",
+  "--blink-settings=imagesEnabled=false",
+];
+
+/**
  * The portal's own login-error page still contains the literal string
  * "LOGOUT" somewhere in its static layout, which false-positives the
  * `content.includes("LOGOUT")` success heuristic below. This is checked
@@ -64,6 +81,35 @@ const hasLoginErrorText = (html: string): boolean => LOGIN_ERROR_TEXT_RE.test(ht
 
 /** Max simultaneous HTTP requests against the portal for attendance/CIE/exam pages. */
 const FETCH_CONCURRENCY = 6;
+
+/**
+ * Reused across all sub-page fetches (and across jobs, since the worker process is
+ * long-lived) so repeat requests to parents.msrit.edu avoid a fresh TCP+TLS handshake
+ * each time. The portal's cert is a valid, CA-signed GoDaddy DV cert (verified via
+ * `openssl`/`curl` against the live host — SSL_verify_result:0, not self-signed, not
+ * expired) so no `rejectUnauthorized: false` bypass is needed here.
+ */
+const keepAliveAgent = new https.Agent({ keepAlive: true, maxSockets: 8, keepAliveMsecs: 15_000 });
+
+/** Retried only on rate-limiting/server errors — not on every request like the old fixed delay. */
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const MAX_FETCH_RETRIES = 2;
+
+async function fetchWithBackoff(instance: ReturnType<typeof axios.create>, url: string): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const resp = await instance.get<string>(url);
+      return resp.data;
+    } catch (err) {
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+      if (status && RETRYABLE_STATUS.has(status) && attempt < MAX_FETCH_RETRIES) {
+        await new Promise((r) => setTimeout(r, 300 * 2 ** attempt));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
 
 export const getCompleteStudentData = async (
   usn: string,
@@ -84,7 +130,7 @@ export const getCompleteStudentData = async (
     if (!browser) {
       browser = await puppeteer.launch({
         headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        args: PUPPETEER_LAUNCH_ARGS,
       });
     }
 
@@ -266,7 +312,7 @@ export const getCompleteStudentData = async (
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         Cookie: cookieString,
       },
-      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      httpsAgent: keepAliveAgent,
     });
 
     const uniqueUrls = [...urlToTargets.keys()];
@@ -274,10 +320,9 @@ export const getCompleteStudentData = async (
     const fetched = await mapWithConcurrency(uniqueUrls, FETCH_CONCURRENCY, async (url) => {
       const tFetchStart = Date.now();
       try {
-        await new Promise((r) => setTimeout(r, Math.random() * 400 + 100));
-        const resp = await axiosInstance.get<string>(url);
+        const html = await fetchWithBackoff(axiosInstance, url);
         fetchDurationsMs.push(Date.now() - tFetchStart);
-        return { url, html: resp.data };
+        return { url, html };
       } catch {
         fetchDurationsMs.push(Date.now() - tFetchStart);
         return { url, html: "" };
