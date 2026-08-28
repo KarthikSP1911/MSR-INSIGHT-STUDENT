@@ -177,8 +177,9 @@ Schema (`src/lib/db/schema.ts`):
   (`src/lib/scrapeJobs.ts`) — never stored in plaintext, even transiently).
 - `trigger` — one of `login`, `manual_update`, `requires_secondary_auth_retry`.
 - `status` — `pending` → `running` → `success` | `failed`.
-- `error`, `resultSummary` (`{ subjectsCount, examHistoryCount }`),
-  `createdAt`/`startedAt`/`finishedAt`.
+- `error`, `resultSummary` (`{ subjectsCount, examHistoryCount, browserMs,
+  loginMs, dashboardMs, fetchMs: { p50, max, total }, parseMs, dbMs,
+  requestCount, bytesDownloaded }`), `createdAt`/`startedAt`/`finishedAt`.
 - Indexes on `(status, createdAt)` (for the polling claim query) and
   `(usn, status)` (for per-student lookups).
 

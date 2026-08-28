@@ -5,7 +5,7 @@ import { encryptText } from "@/lib/auth/crypto";
 import { students } from "@/lib/db/schema";
 import type { WorkerDb } from "@/lib/db/workerClient";
 import type { StudentDetails } from "@/lib/studentDetails";
-import { getCompleteStudentData } from "./puppeteerClient";
+import { getCompleteStudentData, type ScrapeTimings } from "./puppeteerClient";
 import { parseAndProcessData } from "./htmlParser";
 
 /** Parses "DD-MM-YYYY" or "YYYY-MM-DD" (also accepts ISO strings) into portal form-field parts. */
@@ -38,6 +38,7 @@ export interface ScrapeAndSyncResult {
   details: StudentDetails;
   subjectsCount: number;
   examHistoryCount: number;
+  timings: ScrapeTimings & { parseMs: number; dbMs: number };
 }
 
 /**
@@ -57,9 +58,21 @@ export async function scrapeAndSyncStudent(
 ): Promise<ScrapeAndSyncResult> {
   const { day, month, year } = parseDobParts(dob);
 
-  const scrapedData = await getCompleteStudentData(usn, day, month, year, authType, plainPin, sharedBrowser);
-  const details = parseAndProcessData(scrapedData);
+  const { data: scrapedData, timings } = await getCompleteStudentData(
+    usn,
+    day,
+    month,
+    year,
+    authType,
+    plainPin,
+    sharedBrowser,
+  );
 
+  const tParseStart = Date.now();
+  const details = parseAndProcessData(scrapedData);
+  const parseMs = Date.now() - tParseStart;
+
+  const tDbStart = Date.now();
   await db
     .update(students)
     .set({
@@ -72,10 +85,12 @@ export async function scrapeAndSyncStudent(
       updatedAt: new Date(),
     })
     .where(eq(students.usn, usn));
+  const dbMs = Date.now() - tDbStart;
 
   return {
     details,
     subjectsCount: details.subjects?.length ?? 0,
     examHistoryCount: details.exam_history?.length ?? 0,
+    timings: { ...timings, parseMs, dbMs },
   };
 }

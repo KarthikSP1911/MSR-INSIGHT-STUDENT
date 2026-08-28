@@ -20,6 +20,27 @@ export interface ScrapedData {
   exams?: string;
 }
 
+/** Per-phase timing/footprint data for `scrape_jobs.resultSummary` (Phase 0 instrumentation). */
+export interface ScrapeTimings {
+  browserMs: number;
+  loginMs: number;
+  dashboardMs: number;
+  fetchMs: { p50: number; max: number; total: number };
+  requestCount: number;
+  bytesDownloaded: number;
+}
+
+export interface CompleteStudentData {
+  data: ScrapedData;
+  timings: ScrapeTimings;
+}
+
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.min(sorted.length - 1, Math.floor(p * sorted.length));
+  return sorted[idx];
+}
+
 const resolveParentsUrl = (href: string | undefined): string => {
   if (!href) return "";
   const h = href.trim();
@@ -53,10 +74,12 @@ export const getCompleteStudentData = async (
   last4Digits: string | undefined,
   /** Reuse a long-lived browser (the worker keeps one alive across jobs) instead of launching a fresh one per call. */
   sharedBrowser?: Browser,
-): Promise<ScrapedData> => {
+): Promise<CompleteStudentData> => {
   const ownsBrowser = !sharedBrowser;
   let browser: Browser | null = sharedBrowser ?? null;
   let page: Awaited<ReturnType<Browser["newPage"]>> | null = null;
+  let requestCount = 0;
+  const tStart = Date.now();
   try {
     if (!browser) {
       browser = await puppeteer.launch({
@@ -79,6 +102,9 @@ export const getCompleteStudentData = async (
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
+    requestCount++;
+    const tAfterGoto = Date.now();
+    const browserMs = tAfterGoto - tStart;
 
     await page.type("#username", usn);
 
@@ -123,6 +149,7 @@ export const getCompleteStudentData = async (
         if (btn) btn.click();
       }),
     ]);
+    requestCount++;
 
     await page
       .waitForSelector('#id-type-select, .digit-input, #enteredid, a[href*="logout"], table', { timeout: 15000 })
@@ -132,6 +159,8 @@ export const getCompleteStudentData = async (
     let content = await page.content();
     let hasLogout = content.toUpperCase().includes("LOGOUT") && !hasLoginErrorText(content);
     let isDashboardUrl = currentUrl.toLowerCase().includes("dashboard") || currentUrl.toLowerCase().includes("ksign");
+    const tAfterFirstStage = Date.now();
+    const loginMs = tAfterFirstStage - tAfterGoto;
 
     if (!isDashboardUrl && !hasLogout) {
       const hasSelect = await page.$('#id-type-select, select[name="idType"]').catch(() => null);
@@ -178,6 +207,7 @@ export const getCompleteStudentData = async (
             if (btn) btn.click();
           }),
         ]);
+        requestCount++;
 
         await page.waitForSelector('a[href*="logout"], .dash_od_row, table', { timeout: 15000 }).catch(() => {});
 
@@ -187,6 +217,7 @@ export const getCompleteStudentData = async (
         isDashboardUrl = currentUrl.toLowerCase().includes("dashboard") || currentUrl.toLowerCase().includes("ksign");
       }
     }
+    const dashboardMs = Date.now() - tAfterFirstStage;
 
     if ((!isDashboardUrl && !hasLogout) || hasLoginErrorText(content)) {
       throw new Error("Invalid portal credentials or 4-digit PIN. Please verify your USN, Date of Birth, and PIN.");
@@ -239,12 +270,16 @@ export const getCompleteStudentData = async (
     });
 
     const uniqueUrls = [...urlToTargets.keys()];
+    const fetchDurationsMs: number[] = [];
     const fetched = await mapWithConcurrency(uniqueUrls, FETCH_CONCURRENCY, async (url) => {
+      const tFetchStart = Date.now();
       try {
         await new Promise((r) => setTimeout(r, Math.random() * 400 + 100));
         const resp = await axiosInstance.get<string>(url);
+        fetchDurationsMs.push(Date.now() - tFetchStart);
         return { url, html: resp.data };
       } catch {
+        fetchDurationsMs.push(Date.now() - tFetchStart);
         return { url, html: "" };
       }
     });
@@ -259,7 +294,26 @@ export const getCompleteStudentData = async (
       }
     }
 
-    return scrapedData;
+    requestCount += uniqueUrls.length;
+    const sortedFetchMs = [...fetchDurationsMs].sort((a, b) => a - b);
+    const bytesDownloaded =
+      Buffer.byteLength(content, "utf8") +
+      fetched.reduce((sum, f) => sum + Buffer.byteLength(f.html, "utf8"), 0);
+
+    const timings: ScrapeTimings = {
+      browserMs,
+      loginMs,
+      dashboardMs,
+      fetchMs: {
+        p50: percentile(sortedFetchMs, 0.5),
+        max: sortedFetchMs.length ? sortedFetchMs[sortedFetchMs.length - 1] : 0,
+        total: fetchDurationsMs.reduce((a, b) => a + b, 0),
+      },
+      requestCount,
+      bytesDownloaded,
+    };
+
+    return { data: scrapedData, timings };
   } finally {
     if (page) await page.close().catch(() => {});
     if (ownsBrowser && browser) await browser.close().catch(() => {});

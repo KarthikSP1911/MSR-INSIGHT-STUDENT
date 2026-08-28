@@ -111,6 +111,7 @@ async function processJob(
         resultSummary: {
           subjectsCount: result.subjectsCount,
           examHistoryCount: result.examHistoryCount,
+          ...result.timings,
         },
       })
       .where(eq(scrapeJobs.id, job.id));
