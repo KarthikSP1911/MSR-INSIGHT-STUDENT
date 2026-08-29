@@ -20,22 +20,11 @@ import { scrapeAndSyncStudent } from "./scrapeAndSync";
  */
 export async function claimAndRunJob(db: Db, jobId: string): Promise<void> {
   // Claim the job atomically — skip if already running/done.
-  const job = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .select()
-      .from(scrapeJobs)
-      .where(and(eq(scrapeJobs.id, jobId), inArray(scrapeJobs.status, ["pending"])))
-      .for("update", { skipLocked: true });
-
-    if (!row) return null;
-
-    await tx
-      .update(scrapeJobs)
-      .set({ status: "running", startedAt: new Date() })
-      .where(eq(scrapeJobs.id, jobId));
-
-    return row;
-  });
+  const [job] = await db
+    .update(scrapeJobs)
+    .set({ status: "running", startedAt: new Date() })
+    .where(and(eq(scrapeJobs.id, jobId), eq(scrapeJobs.status, "pending")))
+    .returning();
 
   if (!job) {
     // Already claimed by a concurrent invocation — nothing to do.
