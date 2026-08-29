@@ -1,4 +1,4 @@
-# MSR Insight — Student Dashboard
+﻿# MSR Insight — Student Dashboard
 
 A from-scratch rebuild of MSR-Insight's student-facing dashboard on a different stack:
 **Next.js (App Router, frontend + backend), Drizzle ORM, Neon Postgres, JWT auth**.
@@ -6,11 +6,12 @@ A from-scratch rebuild of MSR-Insight's student-facing dashboard on a different 
 nothing here depends on it at runtime.
 
 Students log in with **USN + Date of Birth**, plus a one-time secondary-auth step (parent's
-mobile or ABC ID + the portal's 4-digit PIN) the first time their account is synced. Once
-verified, the dashboard shows their academic data — current-semester performance, exam
-history, notes/PYQ resource links, and a what-if grade/attendance simulator — all scraped
-from the college's parent portal (`https://parents.msrit.edu/newparents/`) via Puppeteer and
-normalized into a single `details` JSONB blob on the student's row.
+mobile or ABC ID + the portal's 4-digit PIN + a personal **Browserless.io API token**) the
+first time their account is synced. Once verified, the dashboard shows their academic data —
+current-semester performance, exam history, notes/PYQ resource links, and a what-if
+grade/attendance simulator — all scraped from the college's parent portal
+(`https://parents.msrit.edu/newparents/`) via a remote Browserless.io browser and normalized
+into a single `details` JSONB blob on the student's row.
 
 ## Table of contents
 
@@ -23,7 +24,7 @@ normalized into a single `details` JSONB blob on the student's row.
 - [Setup](#setup)
 - [Running it](#running-it)
 - [Available scripts](#available-scripts)
-- [Auth &amp; retry flow](#auth--retry-flow)
+- [Auth & retry flow](#auth--retry-flow)
 - [Known deviations from MSR-Insight](#known-deviations-from-msr-insight-deliberate-not-oversights)
 - [Deployment](#deployment)
 - [Git workflow](#git-workflow)
@@ -31,10 +32,11 @@ normalized into a single `details` JSONB blob on the student's row.
 ## Features
 
 - **USN + DOB login**, with a first-time (or PIN-change) secondary-auth step that captures
-  the portal's 4-digit PIN — required once so the app can authenticate against the portal on
-  the student's behalf for every future sync. The PIN field is plain text while typing (not
-  masked), and a failed attempt bounces back to the login form with the reason shown and the
-  verification section already reopened, so the student can immediately correct and retry.
+  the verification method, the portal's last-4-digit PIN, and a
+  **[Browserless.io](https://www.browserless.io) API token** — required once so the app can
+  authenticate against the portal on the student's behalf using a remote browser, without ever
+  launching a local Chromium process. The token is validated synchronously on submission (5s
+  test-connect); an invalid token is rejected immediately with an inline field error.
 - **Asynchronous portal sync**: login doesn't block on the scrape. A session is issued
   immediately and the scrape runs in the background via a job queue, with the dashboard
   showing a "verifying & syncing" state until it resolves (success, failure, or a client-side
@@ -47,33 +49,37 @@ normalized into a single `details` JSONB blob on the student's row.
 - **Notes & PYQs** — a config-driven table of resource links (`src/lib/notes/config.ts`)
   mapped per branch/semester/subject; adding a link is a data change, not a code change.
 - **Manual "Sync now"** button with a 5-minute cooldown (`useCooldown`) to avoid hammering the
-  portal; if the account predates PIN storage, it asks for a re-login instead of syncing blind.
+  portal; if the account predates PIN/token storage, it asks for a re-login instead of syncing
+  blind.
 - **Birthday banner**, mobile-responsive charts/nav, and a re-login flow (`?relogin=1`) for
   accounts with no stored PIN yet.
 - An **Analytics** tab exists in code (`AnalyticsSection.tsx`) but is currently disabled in
   the nav — not wired up in the shipped UI yet.
 - **Out of scope by design**: no proctor login/dashboard, no Placements data (the portal's
   Placement section is deliberately never scraped — see `schema.ts`), no PDF report / AI
-  remarks / email-WhatsApp-to-parents (see [deviations](#known-deviations-from-msr-insight-deliberate-not-oversights)).
+  remarks / email-WhatsApp-to-parents.
 
 ## Architecture at a glance
 
 - **Next.js app** (`src/app`) — both the UI and the API. Route handlers under `src/app/api/**`
-  handle auth, the dashboard's profile/update endpoints, and scrape-job status polling.
-- **Standalone scraper worker** (`worker/scraper-worker.ts`) — a separate long-running Node
-  process. Puppeteer is a poor fit for Next.js route handlers/serverless, so scraping never
-  runs inline in a request. Instead:
-  1. A route handler enqueues a row in the `scrape_jobs` table (Postgres-backed job queue —
-     there's no Redis/RabbitMQ in this stack).
-  2. The worker polls that table (`FOR UPDATE SKIP LOCKED`), runs the scrape, and writes the
-     result onto the student's row.
+  handle auth, the dashboard's profile/update endpoints, scrape-job status polling, and the
+  in-process scrape runner.
+- **In-process scrape runner** (`POST /api/scrape-jobs/run`) — scraping now runs directly
+  inside a Vercel serverless function. Since the app connects to a remote browser via
+  Browserless.io (`puppeteer.connect({ browserWSEndpoint: 'wss://chrome.browserless.io?token=...' })`)
+  rather than launching a local Chromium, the whole scrape fits comfortably inside Vercel's
+  60-second function window:
+  1. `/api/auth/login` or `/api/report/update` inserts a row in the `scrape_jobs` queue table,
+     then fires a **fire-and-forget** internal `fetch` to `POST /api/scrape-jobs/run`.
+  2. `/api/scrape-jobs/run` (`maxDuration = 60`) claims the job with `FOR UPDATE SKIP LOCKED`,
+     decrypts the PIN and Browserless token, calls `scrapeAndSyncStudent`, and marks the job
+     `success` or `failed`.
   3. The frontend polls `GET /api/scrape-jobs/[id]` every ~2s until the job succeeds or fails
-     (see `useScrapeJobPolling`), with retry-on-blip and a client-side timeout backstop so a
-     lost connection or a stuck job can't leave the UI spinning forever.
+     (see `useScrapeJobPolling`), with retry-on-blip and a 6-minute client-side backstop.
 - **Drizzle + Neon** (`src/lib/db`) — two tables: `students` (profile + the `details` JSONB
   blob) and `scrape_jobs` (the queue). No sessions table — auth is a stateless JWT in an
-  httpOnly cookie (~30-day expiry, `Expires` set alongside `Max-Age` for older mobile
-  WebViews), so logout just clears the cookie.
+  httpOnly cookie (~30-day expiry). A single `@neondatabase/serverless` HTTP client is used
+  everywhere — no persistent connection pool, no `pg` driver.
 
 Everything under `src/lib/scraper/` (`puppeteerClient.ts`, `htmlParser.ts`,
 `dataNormalizer.ts`) is a near-verbatim TypeScript port of MSR-Insight's scraper pipeline, so
@@ -88,11 +94,11 @@ the portal-parsing logic and the `details` shape it produces match the original 
 | Data fetching / client cache | TanStack Query (`@tanstack/react-query`) |
 | Charts | Recharts |
 | Animation | Framer Motion |
-| ORM / DB | Drizzle ORM over Neon Postgres (`@neondatabase/serverless` HTTP driver for routes, `pg` pooled client for the worker) |
-| Auth | `jose` (JWT), httpOnly cookie session, AES-256-GCM PIN encryption at rest |
-| Scraping | Puppeteer + Cheerio, run only in the standalone worker process |
+| ORM / DB | Drizzle ORM over Neon Postgres (`@neondatabase/serverless` HTTP driver) |
+| Auth | `jose` (JWT), httpOnly cookie session, AES-256-GCM PIN + token encryption at rest |
+| Scraping | `puppeteer-core` + Cheerio, connecting to a per-student **Browserless.io** remote browser — no local Chromium ever launched |
 | Validation | Zod |
-| Tooling | ESLint 9, Lefthook (git hooks), Commitlint (Conventional Commits), `tsx` (worker dev runner) |
+| Tooling | ESLint 9, Lefthook (git hooks), Commitlint (Conventional Commits) |
 | Observability | Vercel Analytics + Speed Insights |
 
 ## Data model
@@ -103,13 +109,22 @@ shape): CGPA, current-semester subjects (marks, attendance, per-assessment break
 exam history. `encryptedPin` is `iv:authTag:cipher` hex (AES-256-GCM) and is never returned
 by any API response.
 
+`encryptedBrowserlessToken` — the student's personal Browserless.io API token, stored with
+the same AES-256-GCM scheme as `encryptedPin`. Never returned by any API response, never
+logged, never included in error messages.
+
+`browserlessTokenValid` — flips `false` when a scrape fails because Browserless rejected the
+token (bad/expired/revoked), as opposed to a portal-login failure. The login flow checks this
+on load: if `false` and no new token is provided, it returns `requiresTokenRefresh: true` so
+the form re-prompts specifically for the Browserless token without requiring the PIN again.
+
 **`scrape_jobs`** — the job queue. Each row tracks `trigger` (`login` /
 `manual_update` / `requires_secondary_auth_retry`), `scope` (`full` fetches everything;
 `recurring` skips the exam-history page, since it only changes once per exam cycle, and
 merges the previous scrape's history back in), and `status`
 (`pending` → `running` → `success` | `failed`). A partial unique index allows at most one
-active (`pending`/`running`) job per USN, so repeated login/refresh clicks reuse the
-in-flight job instead of queuing duplicates.
+active (`pending`/`running`) job per USN. Both `encryptedPin` and `encryptedBrowserlessToken`
+are snapshotted into the job row at enqueue time — the run route decrypts them in-process.
 
 Migrations live in `drizzle/` (Drizzle Kit); see [Setup](#setup) for generating/applying them.
 
@@ -120,41 +135,40 @@ cookie; there is no bearer-token/header auth.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/api/auth/login` | — | USN+DOB login. Returns `requiresSecondaryAuth` if no verified PIN exists yet; otherwise mints the session and enqueues a scrape job (`login` trigger). |
-| `POST` | `/api/auth/register` | — | Legacy/standalone registration path (USN+DOB only) — not currently wired into the login UI, which handles first-time registration inline via the secondary-auth step. |
-| `GET` | `/api/auth/profile` | session | Current student's profile + `details`, with `encryptedPin` stripped. |
+| `POST` | `/api/auth/login` | — | USN+DOB login. Returns `requiresSecondaryAuth` if no verified PIN/token exists yet; validates Browserless token synchronously; mints session and triggers scrape. |
+| `POST` | `/api/auth/register` | — | Legacy/standalone registration path — not wired into the login UI. |
+| `GET` | `/api/auth/profile` | session | Current student's profile + `details`, with encrypted fields stripped. |
 | `POST` | `/api/auth/logout` | session | Clears the session cookie. |
 | `GET` | `/api/report/student/[usn]` | session (self only) | Fetch a student's report; triggers a scrape if none exists yet. |
-| `POST` | `/api/report/update` | session (self only) | Manual "Sync now" — enforces the 5-minute cooldown against `details.last_updated`, enqueues a `manual_update`/`full` job, or returns `requiresRelogin` if no PIN is stored. |
-| `GET` | `/api/scrape-jobs/[id]` | session | Poll a job's `status`/`error`/`resultSummary`, used by `useScrapeJobPolling`. |
+| `POST` | `/api/report/update` | session (self only) | Manual "Sync now" — enforces 5-min cooldown, checks `browserlessTokenValid`, enqueues job + triggers run. |
+| `GET` | `/api/scrape-jobs/[id]` | session | Poll job `status`/`error`/`resultSummary`, used by `useScrapeJobPolling`. |
+| `POST` | `/api/scrape-jobs/run` | internal | In-process scrape runner (`maxDuration = 60`). Called fire-and-forget from login/update routes. |
 
 ## Project layout
 
 ```
 src/
   app/
-    (auth)/student-login/           # LoginForm (USN+DOB + secondary-auth/PIN flow)
+    (auth)/student-login/           # LoginForm (USN+DOB + secondary-auth/PIN/token flow)
     (dashboard)/student/dashboard/  # dashboard page + SubjectDetail drill-down
     api/
       auth/{login,register,logout,profile}/
       report/{student/[usn],update}/
-      scrape-jobs/[id]/
+      scrape-jobs/[id]/             # job status polling
+      scrape-jobs/run/              # in-process scrape runner (maxDuration=60)
     error.tsx, global-error.tsx     # App Router error boundaries
   components/dashboard/             # SidebarProfile, LoadingScreen, BirthdayBanner, UpdateButton, CustomSelect, DashboardHeader
     sections/                      # PerformanceSection, HistorySection, SimulatorSection, NotesSection, AnalyticsSection (disabled)
   hooks/                            # useCooldown, useScrapeJobPolling
   lib/
-    auth/                          # JWT (jwt.ts), cookies (cookies.ts), session lookup (session.ts), AES-256-GCM PIN crypto (crypto.ts), authType normalization
-    db/                            # Drizzle schema + clients (HTTP client for routes, pooled client for the worker)
-    scraper/                       # ported puppeteerClient/htmlParser/dataNormalizer + scrapeAndSync orchestration, concurrency helper
+    auth/                          # JWT (jwt.ts), cookies (cookies.ts), session lookup (session.ts), AES-256-GCM crypto (crypto.ts), authType normalization
+    db/                            # Drizzle schema + HTTP client (client.ts)
+    scraper/                       # puppeteerClient (Browserless connect), htmlParser, dataNormalizer, scrapeAndSync, runJob, concurrency helper
     simulator/                     # grade math + CGPA calculator (pure functions)
     notes/                         # resource-link config + resolution logic
-    scrapeJobs.ts                  # enqueue/claim helpers shared by routes and the worker
+    scrapeJobs.ts                  # enqueue helper shared by login + update routes
     studentDetails.ts              # the normalized `details` shape + hasScrapedData()
     validation/auth.ts             # Zod request schemas
-worker/
-  scraper-worker.ts                # the standalone process described above
-  Dockerfile                       # system-Chromium image for Render deployment
 drizzle/                           # generated SQL migrations + snapshots
 ```
 
@@ -166,8 +180,7 @@ cp .env.example .env
 ```
 
 On Windows, `setup.bat` does the same (install, create `.env`, run migrations if
-`DATABASE_URL` is already set) and `run.bat` opens the dev server and worker in separate
-terminal windows.
+`DATABASE_URL` is already set).
 
 Fill in `.env`:
 
@@ -175,10 +188,8 @@ Fill in `.env`:
 |---|---|
 | `DATABASE_URL` | Neon Postgres connection string. |
 | `JWT_SECRET` | Signs the student session cookie. |
-| `ENCRYPTION_SECRET` | Derives the AES-256-GCM key used to encrypt the stored portal PIN at rest — keep separate from `JWT_SECRET`. |
-| `MSR_PORTAL_TEST_*` (optional) | Only needed to exercise the live scraper against the real portal during development. |
-| `PUPPETEER_SKIP_DOWNLOAD` (deploy-only) | Set on Vercel — the app never launches Chromium, so this skips a pointless download during `npm install`. |
-| `PUPPETEER_EXECUTABLE_PATH` (deploy-only) | Set automatically by `worker/Dockerfile`; points Puppeteer at the container's system Chromium. |
+| `ENCRYPTION_SECRET` | Derives the AES-256-GCM key used to encrypt the stored portal PIN and Browserless token at rest — keep separate from `JWT_SECRET`. |
+| `MSR_PORTAL_TEST_BROWSERLESS_TOKEN` (optional) | Only needed to exercise the live scraper during development — a real Browserless token with an active session. |
 
 Once `DATABASE_URL` is set:
 
@@ -190,16 +201,16 @@ npm run db:studio     # optional: browse the DB in Drizzle Studio
 
 ## Running it
 
-Two processes, in separate terminals:
+Single process — no worker needed:
 
 ```bash
 npm run dev      # Next.js app — http://localhost:3000
-npm run worker   # scraper worker — polls scrape_jobs every 3s
 ```
 
-The dev server works without the worker running (login/update requests will just enqueue jobs
-that sit `pending` until a worker picks them up), but nothing will actually get scraped until
-`npm run worker` is also running.
+The dev server is fully self-contained. The scrape runs in-process inside
+`/api/scrape-jobs/run` when a login or sync is triggered. In development the
+`maxDuration = 60` export is ignored (no Vercel runtime), so scrapes can run
+as long as needed.
 
 ## Available scripts
 
@@ -207,7 +218,6 @@ that sit `pending` until a worker picks them up), but nothing will actually get 
 npm run dev      # Next.js dev server (Turbopack)
 npm run build    # production build
 npm run start    # run the production build
-npm run worker   # scraper worker, watch mode (tsx watch)
 npm run lint     # ESLint
 npm run db:generate   # generate a Drizzle migration from schema.ts
 npm run db:migrate    # apply migrations to DATABASE_URL
@@ -218,58 +228,54 @@ npm run db:studio     # Drizzle Studio (DB browser)
 
 - **First-time login / PIN change**: submitting USN+DOB alone returns
   `requiresSecondaryAuth`; the form then asks for the verification method (Father's/Mother's
-  Mobile or ABC ID) and the portal's last-4-digit PIN, and resubmits with both.
-- **Wrong details**: a DOB mismatch against an already-verified account is rejected
-  synchronously (400, shown inline, form stays editable). A wrong PIN or first-time
-  USN/DOB/PIN combination is only discoverable by actually attempting the portal login, which
-  happens asynchronously in the worker — if that job fails and the account has no prior
-  scraped data, the dashboard logs the (still-unverified) session out and redirects to
-  `/student-login?error=<reason>`, with the PIN section pre-expanded so the student can
-  immediately retype and resubmit.
-- **Returning users**: a failed manual "Sync now" (e.g. a stale stored PIN) does *not* log the
-  student out — it surfaces an inline error banner on the dashboard, since the previously
-  synced data is still valid and displayed.
+  Mobile or ABC ID), the portal's last-4-digit PIN, and a **Browserless.io API token** (see
+  [Browserless.io](https://www.browserless.io) — free accounts are available). All three are
+  submitted together and the token is validated synchronously (5s test-connect) before a
+  session is minted. An invalid token is rejected with an inline field error; the form stays
+  open so the student can correct and resubmit immediately.
+- **Browserless token expiry**: if a scrape job fails because Browserless rejected the token,
+  `browserlessTokenValid` is set `false` on the student row. The next login detects this and
+  returns `requiresTokenRefresh: true` — the secondary-auth section reopens showing only the
+  token field (PIN is skipped since it is still valid).
+- **Wrong portal credentials**: a DOB mismatch against an already-verified account is rejected
+  synchronously (400). A wrong PIN or USN/DOB/PIN combination is only discoverable by actually
+  attempting the portal login. If that job fails and the account has no prior scraped data,
+  the dashboard redirects to `/student-login?error=<reason>` with the PIN section
+  pre-expanded.
 - **Not stuck forever**: `useScrapeJobPolling` retries transient fetch failures (common on
-  mobile — app-switch, screen lock, flaky connection), refetches immediately when the tab/app
-  regains focus, and has a 6-minute client-side backstop (`MAX_POLL_MS`) that surfaces a
-  timeout error even if the worker itself never responds — independent of the worker's own
-  4-minute per-job timeout.
+  mobile), refetches on tab focus, and has a 6-minute client-side backstop (`MAX_POLL_MS`)
+  that surfaces a timeout error even if the scrape route itself never responds — independent
+  of the route's own `maxDuration`.
 
 ## Known deviations from MSR-Insight (deliberate, not oversights)
 
 - **Session storage**: MSR-Insight uses `localStorage` + an `x-session-id` header +
-  Redis-backed sessions, because its frontend and backend are separate origins. Here the API
-  is same-origin, so auth is a single httpOnly JWT cookie — no client-side session storage at
-  all.
+  Redis-backed sessions. Here auth is a single httpOnly JWT cookie — no client-side session
+  storage at all.
 - **Scraping is asynchronous**: MSR-Insight scrapes synchronously inside the login/update
   request. Here, a session is minted immediately and the scrape runs in the background via
-  the job queue — the dashboard shows a "syncing" state (via `useScrapeJobPolling`) rather
-  than blocking the login screen.
-- **The encrypted PIN is never sent to the client.** MSR-Insight's `/api/auth/profile`
-  returns it as-is; the equivalent route here strips it before responding.
-- **Scope**: this rebuild is student-only. There's no proctor login, proctor dashboard, or
-  proctor-viewing-student mode. The printable PDF report page, AI-generated remarks, and
-  email/WhatsApp-to-parents features (which depend on FastAPI+Groq, RabbitMQ, Resend,
-  Twilio, and Cloudinary) are all out of scope — none of those services exist in this
-  project. The Placements section is deliberately never scraped, parsed, or stored either.
+  the job queue — the dashboard shows a "syncing" state (via `useScrapeJobPolling`).
+- **Per-student Browserless token**: MSR-Insight uses a single shared Puppeteer process with
+  a locally-managed Chromium. Here each student provides their own Browserless.io token, which
+  is stored encrypted and used per-scrape — no shared browser state, no local process.
+- **The encrypted PIN and Browserless token are never sent to the client.** MSR-Insight's
+  `/api/auth/profile` returns the encrypted PIN as-is; the equivalent route here strips both
+  before responding.
+- **Scope**: student-only. No proctor login, dashboard, PDF report, AI remarks, or
+  email/WhatsApp-to-parents. The Placements section is deliberately never scraped.
 
 ## Deployment
 
 See **`DEPLOYMENT.md`** for the full walkthrough. Short version:
 
-- **Next.js app → Vercel** (free/Hobby tier). It never launches Puppeteer, so it deploys as a
-  plain Next.js project — set `DATABASE_URL`, `JWT_SECRET`, `ENCRYPTION_SECRET`, and
-  `PUPPETEER_SKIP_DOWNLOAD=1` as project env vars.
-- **Worker → Render** (free tier), built from `worker/Dockerfile` (system Chromium). Render's
-  free tier only offers Web Services (must bind `$PORT`, sleeps after ~15 min idle), so the
-  worker also serves a trivial `/health` endpoint — pair it with a free external pinger
-  (UptimeRobot, cron-job.org) hitting `/health` every ~10 minutes. Set `DATABASE_URL`,
-  `JWT_SECRET`, `ENCRYPTION_SECRET`, and keep `SCRAPER_WORKER_CONCURRENCY=1` (512MB RAM
-  doesn't comfortably fit more than one concurrent Chromium tab).
-- **Future iteration**: a paid always-on host removes the idle-sleep workaround; a real queue
-  service only matters if scrape volume outgrows a single polling worker; horizontal scaling
-  is already safe today thanks to the `FOR UPDATE SKIP LOCKED` claim query — running a second
-  worker process needs no code changes.
+- **Vercel (free/Hobby tier), single service** — the entire app including the scrape runner.
+  Set `DATABASE_URL`, `JWT_SECRET`, and `ENCRYPTION_SECRET` as project env vars. No
+  `PUPPETEER_SKIP_DOWNLOAD`, no `PUPPETEER_EXECUTABLE_PATH`, no second host.
+- Each student provides their own [Browserless.io](https://www.browserless.io) token at
+  first login. Free-tier tokens cover the scrape volume of a single student easily.
+- The scrape route (`/api/scrape-jobs/run`) has `maxDuration = 60` (Vercel Hobby limit).
+  A full scrape typically completes in 15–35s. If a scrape times out the job is marked
+  `failed` and the student can retry via "Sync now".
 
 ## Git workflow
 

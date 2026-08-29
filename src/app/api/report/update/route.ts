@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+﻿import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { decryptText } from "@/lib/auth/crypto";
@@ -16,6 +16,10 @@ const COOLDOWN_MS = 5 * 60 * 1000;
  * details.last_updated (a plain timestamp diff, not a rate limiter), and
  * requires a stored PIN/authType or asks the client to re-login
  * (`requiresRelogin`). The synchronous scrape is replaced by enqueue+poll.
+ *
+ * Also checks `browserlessTokenValid` — if the token was flagged invalid by a
+ * prior scrape failure, returns `requiresTokenRefresh: true` so the frontend
+ * can redirect to the login form for a token re-entry.
  */
 export async function POST(request: NextRequest) {
   const sessionUsn = await getCurrentUsn();
@@ -83,14 +87,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Browserless token was flagged invalid by a prior scrape — prompt the student to re-enter it.
+    if (!student.browserlessTokenValid || !student.encryptedBrowserlessToken) {
+      return NextResponse.json(
+        {
+          success: false,
+          requiresRelogin: true,
+          requiresTokenRefresh: true,
+          message:
+            "Your Browserless API token is no longer valid. Please sign in again to provide a new token.",
+        },
+        { status: 401 },
+      );
+    }
+
+    const plainBrowserlessToken = decryptText(student.encryptedBrowserlessToken);
+    if (!plainBrowserlessToken) {
+      return NextResponse.json(
+        {
+          success: false,
+          requiresRelogin: true,
+          requiresTokenRefresh: true,
+          message: "Failed to retrieve your Browserless token. Please sign in again.",
+        },
+        { status: 401 },
+      );
+    }
+
     const jobId = await enqueueScrapeJob(db, {
       usn,
       dob: student.dob,
       authType: targetAuthType,
       plainPin: targetPin,
+      plainBrowserlessToken,
       trigger: "manual_update",
       scope: "full",
     });
+
+    // Fire-and-forget: trigger the scrape without blocking the response.
+    const runUrl = new URL("/api/scrape-jobs/run", request.url);
+    fetch(runUrl.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId }),
+    }).catch((e) => console.error("[api/report/update] fire-and-forget scrape trigger failed:", e));
 
     return NextResponse.json({ success: true, allowed: true, data: { jobId } });
   } catch (err) {

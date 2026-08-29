@@ -24,7 +24,8 @@ export async function GET() {
       return NextResponse.json({ success: false, message: "Student not found" }, { status: 404 });
     }
 
-    const { encryptedPin: _encryptedPin, ...safeStudent } = student;
+    // Strip both encrypted secrets — neither should ever reach the client.
+    const { encryptedPin: _encryptedPin, encryptedBrowserlessToken: _encryptedBrowserlessToken, ...safeStudent } = student;
     return NextResponse.json({ success: true, data: safeStudent });
   } catch (err) {
     console.error(`[api/auth/profile] failed for USN ${usn}:`, err);

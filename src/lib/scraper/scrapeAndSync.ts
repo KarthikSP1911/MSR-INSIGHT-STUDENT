@@ -1,9 +1,8 @@
 import { eq } from "drizzle-orm";
-import type { Browser } from "puppeteer";
 
 import { encryptText } from "@/lib/auth/crypto";
+import type { Db } from "@/lib/db/client";
 import { students, type ScrapeJobScope } from "@/lib/db/schema";
-import type { WorkerDb } from "@/lib/db/workerClient";
 import type { StudentDetails } from "@/lib/studentDetails";
 import { getCompleteStudentData, type ScrapeTimings } from "./puppeteerClient";
 import { parseAndProcessData } from "./htmlParser";
@@ -12,7 +11,7 @@ import { parseAndProcessData } from "./htmlParser";
  * A `recurring`-scope scrape never fetched the exam-history page, so `fresh.exam_history`/
  * `fresh.cgpa` are blank/defaulted — restore them from the previous scrape rather than
  * persist a wipe. CIE/attendance are always freshly fetched regardless of scope (CIE marks
- * are posted throughout the semester, so they're never treated as "doesn't change between
+ * are posted throughout the semester, so they are never treated as "doesn't change between
  * logins" — only exam history, which updates once per exam cycle, gets that treatment).
  */
 function mergeRecurringScrape(fresh: StudentDetails, previous: StudentDetails | undefined): StudentDetails {
@@ -63,17 +62,21 @@ export interface ScrapeAndSyncResult {
  * the portal, normalizes the result, and upserts it onto the student row —
  * including re-encrypting the PIN that was actually used, so future
  * instant-logins/updates can reuse it.
+ *
+ * Runs in-process inside a Vercel serverless function (via runJob.ts /
+ * POST /api/scrape-jobs/run) — no standalone worker process anymore.
  */
 export async function scrapeAndSyncStudent(
-  db: WorkerDb,
+  db: Db,
   usn: string,
   dob: string,
   authType: string,
   plainPin: string,
-  /** The worker's long-lived browser, reused across jobs instead of relaunching Chromium per job. */
-  sharedBrowser?: Browser,
-  /** `recurring` skips only the exam-history fetch and merges it back in from the existing row; `full` re-fetches everything, including exam history. */
+  /** Decrypted per-student Browserless.io token — passed through to getCompleteStudentData. */
+  browserlessToken: string,
+  /** `recurring` skips only the exam-history fetch and merges it back in from the existing row; `full` re-fetches everything. */
   scope: ScrapeJobScope = "full",
+  onProgress?: (msg: string) => Promise<void>,
 ): Promise<ScrapeAndSyncResult> {
   const { day, month, year } = parseDobParts(dob);
 
@@ -86,8 +89,9 @@ export async function scrapeAndSyncStudent(
     year,
     authType,
     plainPin,
-    sharedBrowser,
+    browserlessToken,
     scope,
+    onProgress,
   );
 
   const tParseStart = Date.now();

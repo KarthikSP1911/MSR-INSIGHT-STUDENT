@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -40,7 +40,7 @@ const CustomSelect = ({
   useEffect(() => {
     if (!isOpen) return;
     // Scrolling the long options list (e.g. the 50-year list) itself fires a "scroll" event
-    // that's caught here in the capture phase too — ignore those so the list stays open while
+    // that is caught here in the capture phase too — ignore those so the list stays open while
     // the user scrolls it, and only close for scrolls elsewhere on the page.
     const handleScroll = (e: Event) => {
       if (dropdownRef.current?.contains(e.target as Node)) return;
@@ -106,6 +106,11 @@ export default function LoginForm() {
   const [showSecondaryAuth, setShowSecondaryAuth] = useState(() => Boolean(searchParams.get("error")));
   const [authType, setAuthType] = useState("Father's Mobile");
   const [last4Digits, setLast4Digits] = useState("");
+  const [browserlessToken, setBrowserlessToken] = useState("");
+  const [browserlessTokenError, setBrowserlessTokenError] = useState("");
+  // When only the Browserless token needs re-entry (PIN is still valid), set this
+  // flag to show a targeted prompt rather than the full secondary-auth form.
+  const [tokenRefreshOnly, setTokenRefreshOnly] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [infoMsg, setInfoMsg] = useState("");
@@ -141,7 +146,13 @@ export default function LoginForm() {
         setMonth(months[parseInt(m, 10) - 1] || "");
         setYear(y);
         setShowSecondaryAuth(true);
-        setInfoMsg("Please re-verify your portal PIN to continue syncing your dashboard.");
+
+        if (searchParams.get("tokenRefresh") === "1") {
+          setTokenRefreshOnly(true);
+          setInfoMsg("Your Browserless API token has expired or been revoked. Please enter a new token to resume syncing.");
+        } else {
+          setInfoMsg("Please re-verify your portal PIN to continue syncing your dashboard.");
+        }
       } catch (err) {
         // Session fetch failed — leave the form blank for a normal fresh login instead.
         console.error("[LoginForm] relogin session fetch failed:", err);
@@ -161,7 +172,7 @@ export default function LoginForm() {
       return;
     }
 
-    if (showSecondaryAuth) {
+    if (showSecondaryAuth && !tokenRefreshOnly) {
       if (!authType) {
         setError("Please select a verification method");
         return;
@@ -172,7 +183,13 @@ export default function LoginForm() {
       }
     }
 
+    if (showSecondaryAuth && !browserlessToken.trim()) {
+      setBrowserlessTokenError("A Browserless API token is required. Get one free at browserless.io.");
+      return;
+    }
+
     setError("");
+    setBrowserlessTokenError("");
     setInfoMsg("");
     setLoading(true);
 
@@ -186,8 +203,11 @@ export default function LoginForm() {
         dob: formattedDate,
       };
       if (showSecondaryAuth) {
-        payload.authType = authType;
-        payload.last4Digits = last4Digits;
+        if (!tokenRefreshOnly) {
+          payload.authType = authType;
+          payload.last4Digits = last4Digits;
+        }
+        payload.browserlessToken = browserlessToken.trim();
       }
 
       const response = await fetch("/api/auth/login", {
@@ -199,9 +219,22 @@ export default function LoginForm() {
 
       if (result.requiresSecondaryAuth) {
         setShowSecondaryAuth(true);
-        setInfoMsg(
-          "Portal verification required for first-time login. Please select your verification method and enter the last 4 digits.",
-        );
+        if (result.requiresTokenRefresh) {
+          setTokenRefreshOnly(true);
+          setInfoMsg("Your Browserless API token is no longer valid. Please enter a new token below.");
+        } else {
+          setInfoMsg(
+            "Portal verification required for first-time login. Please select your verification method, enter the last 4 digits, and provide your Browserless API token.",
+          );
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Inline error for an invalid Browserless token (separate from the general form error).
+      if (result.browserlessTokenError) {
+        setBrowserlessTokenError(result.browserlessTokenError);
+        setShowSecondaryAuth(true);
         setLoading(false);
         return;
       }
@@ -255,31 +288,72 @@ export default function LoginForm() {
             <div className="secondary-auth-section fade-in">
               <div className="secondary-header">
                 <h3>Portal Verification Required</h3>
-                <p>Select option and enter the last 4 digits</p>
+                <p>
+                  {tokenRefreshOnly
+                    ? "Re-enter your Browserless token to resume syncing"
+                    : "Select option, enter the last 4 digits, and provide your Browserless token"}
+                </p>
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Verification Option</label>
-                <CustomSelect
-                  value={authType}
-                  onChange={setAuthType}
-                  options={authOptions}
-                  placeholder="Select Method"
-                />
-              </div>
+              {!tokenRefreshOnly && (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Verification Option</label>
+                    <CustomSelect
+                      value={authType}
+                      onChange={setAuthType}
+                      options={authOptions}
+                      placeholder="Select Method"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Last 4 Digits</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      className="input-field pin-input"
+                      value={last4Digits}
+                      onChange={(e) => setLast4Digits(e.target.value.replace(/\D/g, ""))}
+                      placeholder="••••"
+                      autoComplete="off"
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="form-group">
-                <label className="form-label">Last 4 Digits</label>
+                <label className="form-label">
+                  Browserless API Token{" "}
+                  <a
+                    href="https://www.browserless.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="form-label-link"
+                  >
+                    (get one free at browserless.io)
+                  </a>
+                </label>
                 <input
                   type="text"
-                  inputMode="numeric"
-                  maxLength={4}
-                  className="input-field pin-input"
-                  value={last4Digits}
-                  onChange={(e) => setLast4Digits(e.target.value.replace(/\D/g, ""))}
-                  placeholder="••••"
+                  className={`input-field${browserlessTokenError ? " input-error" : ""}`}
+                  value={browserlessToken}
+                  onChange={(e) => {
+                    setBrowserlessToken(e.target.value);
+                    if (browserlessTokenError) setBrowserlessTokenError("");
+                  }}
+                  placeholder="Paste your Browserless.io API token"
                   autoComplete="off"
+                  spellCheck={false}
                 />
+                {browserlessTokenError && (
+                  <div className="field-error">{browserlessTokenError}</div>
+                )}
+                <div className="field-hint">
+                  Used to connect to a remote browser for scraping the portal on your behalf.
+                  Your token is encrypted before storage and never shared.
+                </div>
               </div>
             </div>
           )}

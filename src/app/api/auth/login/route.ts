@@ -1,14 +1,15 @@
-import { eq } from "drizzle-orm";
+﻿import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { normalizeAuthType } from "@/lib/auth/authType";
-import { decryptText } from "@/lib/auth/crypto";
+import { decryptText, encryptText } from "@/lib/auth/crypto";
 import { setSessionCookie } from "@/lib/auth/cookies";
 import { signStudentToken } from "@/lib/auth/jwt";
 import { getDb } from "@/lib/db/client";
 import { students } from "@/lib/db/schema";
 import { enqueueScrapeJob } from "@/lib/scrapeJobs";
 import { hasScrapedData } from "@/lib/studentDetails";
+import { validateBrowserlessToken } from "@/lib/scraper/puppeteerClient";
 import { loginSchema } from "@/lib/validation/auth";
 
 /**
@@ -16,6 +17,11 @@ import { loginSchema } from "@/lib/validation/auth";
  * flow preserved (it's what authorizes the portal scrape). Ported from
  * auth.service.js `login()` / auth.controller.js `login()`, with the
  * synchronous scrape replaced by enqueue-and-poll (see /api/scrape-jobs/[id]).
+ *
+ * When secondary auth is submitted, a Browserless.io token must also be
+ * provided. It is validated synchronously (5s timeout) before minting a
+ * session — invalid token is a 400 just like a missing PIN, keeping the
+ * form open with an inline error.
  */
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
@@ -26,7 +32,7 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const { dob, authType, last4Digits, forceResync } = parsed.data;
+  const { dob, authType, last4Digits, browserlessToken, forceResync } = parsed.data;
   const usn = parsed.data.usn.toUpperCase();
 
   try {
@@ -34,9 +40,7 @@ export async function POST(request: NextRequest) {
     const [existing] = await db.select().from(students).where(eq(students.usn, usn));
 
     // Only reject on a DOB mismatch once we have confirmed (successfully scraped) data to
-    // trust — an existing row with no scraped data is just an unverified placeholder from a
-    // prior failed first-login attempt (see scrapeAndSyncStudent's failure path), so a
-    // corrected retry with a different DOB is allowed to proceed and overwrite it.
+    // trust — an existing row with no scraped data is just an unverified placeholder.
     if (existing && existing.dob !== dob && hasScrapedData(existing.details)) {
       return NextResponse.json(
         { success: false, message: "Invalid USN or Date of Birth." },
@@ -45,15 +49,21 @@ export async function POST(request: NextRequest) {
     }
 
     const hasStoredPin = Boolean(existing?.encryptedPin);
+    const hasStoredToken = Boolean(existing?.encryptedBrowserlessToken);
+    const tokenStillValid = existing?.browserlessTokenValid !== false;
     const hasNewPinProvided = Boolean(last4Digits);
+    const hasNewTokenProvided = Boolean(browserlessToken);
 
-    // Instant login: cached scrape + stored PIN + no forced/new re-verification needed.
+    // Instant login: cached scrape + stored PIN + valid Browserless token + no forced re-verification.
     if (
       existing &&
       hasScrapedData(existing.details) &&
       hasStoredPin &&
+      hasStoredToken &&
+      tokenStillValid &&
       !forceResync &&
-      !hasNewPinProvided
+      !hasNewPinProvided &&
+      !hasNewTokenProvided
     ) {
       const token = await signStudentToken(usn);
       await setSessionCookie(token);
@@ -61,6 +71,17 @@ export async function POST(request: NextRequest) {
         success: true,
         message: "Login successful",
         data: { usn, jobId: null },
+      });
+    }
+
+    // If the stored Browserless token was marked invalid (bad/expired) and no new token was
+    // provided, re-prompt specifically for the token — PIN can be skipped if still valid.
+    if (existing && !tokenStillValid && !hasNewTokenProvided) {
+      return NextResponse.json({
+        success: false,
+        requiresSecondaryAuth: true,
+        requiresTokenRefresh: true,
+        message: "Your Browserless API token is no longer valid. Please re-enter it to continue syncing.",
       });
     }
 
@@ -76,31 +97,77 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (!existing) {
-      await db.insert(students).values({ usn, dob, currentYear: 0, details: {} });
-    } else if (existing.dob !== dob) {
-      await db.update(students).set({ dob }).where(eq(students.usn, usn));
+    // A new Browserless token was submitted — validate it synchronously before storing.
+    let resolvedEncryptedToken: string | null = existing?.encryptedBrowserlessToken ?? null;
+    if (hasNewTokenProvided) {
+      const tokenValid = await validateBrowserlessToken(browserlessToken!, 5000);
+      if (!tokenValid) {
+        return NextResponse.json(
+          {
+            success: false,
+            requiresSecondaryAuth: true,
+            browserlessTokenError:
+              "Could not connect to Browserless with this token. Check that it is correct and has not expired.",
+          },
+          { status: 400 },
+        );
+      }
+      resolvedEncryptedToken = encryptText(browserlessToken!);
     }
 
-    // Canonicalize here rather than trust the stored value as-is: `existing?.authType` may be a
-    // pre-this-app free-text variant ("mother", "mobile", ...) from before the login form's
-    // fixed 3-value dropdown existed — see normalizeAuthType's own doc comment.
-    //
-    // A login only needs fresh attendance + CIE — exam history is the one thing that doesn't
-    // change between logins (updated once per exam cycle, not throughout the semester like CIE
-    // marks) and is already on the existing row when there is one. A genuinely new student (no
-    // prior scrape to merge exam history back in from) still needs a full scrape.
+    // If we still have no token at all (first-time user who hasn't provided one yet), prompt.
+    if (!resolvedEncryptedToken) {
+      return NextResponse.json({
+        success: false,
+        requiresSecondaryAuth: true,
+        message: "A Browserless.io API token is required for portal scraping.",
+      });
+    }
+
+    if (!existing) {
+      await db.insert(students).values({
+        usn,
+        dob,
+        currentYear: 0,
+        details: {},
+        encryptedBrowserlessToken: resolvedEncryptedToken,
+        browserlessTokenValid: true,
+      });
+    } else {
+      const updates: Partial<typeof students.$inferInsert> = {};
+      if (existing.dob !== dob) updates.dob = dob;
+      if (hasNewTokenProvided) {
+        updates.encryptedBrowserlessToken = resolvedEncryptedToken;
+        updates.browserlessTokenValid = true;
+      }
+      if (Object.keys(updates).length > 0) {
+        await db.update(students).set(updates).where(eq(students.usn, usn));
+      }
+    }
+
+    // Canonicalize here rather than trust the stored value as-is.
     const jobId = await enqueueScrapeJob(db, {
       usn,
       dob,
       authType: normalizeAuthType(targetAuthType),
       plainPin: targetPin,
+      plainBrowserlessToken: resolvedEncryptedToken ? decryptText(resolvedEncryptedToken) : null,
       trigger: "login",
       scope: hasScrapedData(existing?.details) ? "recurring" : "full",
     });
 
-    const token = await signStudentToken(usn);
-    await setSessionCookie(token);
+    const sessionToken = await signStudentToken(usn);
+    await setSessionCookie(sessionToken);
+
+    // Fire-and-forget: trigger the scrape in-process so the login response returns
+    // immediately while the scrape runs in the background via Vercel's extended
+    // execution (maxDuration=60 on the run route). No await — response goes back now.
+    const runUrl = new URL("/api/scrape-jobs/run", request.url);
+    fetch(runUrl.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId }),
+    }).catch((e) => console.error("[api/auth/login] fire-and-forget scrape trigger failed:", e));
 
     return NextResponse.json({
       success: true,

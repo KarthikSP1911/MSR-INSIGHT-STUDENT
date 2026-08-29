@@ -6,6 +6,7 @@ export type ScrapeJobStatus = "pending" | "running" | "success" | "failed";
 export interface ScrapeJobStatusResponse {
   id: string;
   status: ScrapeJobStatus;
+  progress: string | null;
   error: string | null;
   resultSummary: { subjectsCount: number; examHistoryCount: number } | null;
 }
@@ -78,6 +79,7 @@ export function useScrapeJobPolling(jobId: string | null) {
 
   return {
     status,
+    progress: query.data?.progress ?? null,
     error,
     resultSummary: query.data?.resultSummary ?? null,
     isSyncing: !!jobId && status !== "success" && status !== "failed",
