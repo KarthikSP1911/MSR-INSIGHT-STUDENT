@@ -481,6 +481,7 @@ export default function StudentDashboard() {
                   onSelectSubject={setSelectedSubject}
                   handleUpdate={handleUpdate}
                   updateStatus={updateStatus}
+                  jobProgress={jobProgress}
                   isCooldownActive={isCooldownActive}
                   formatTime={formatTime}
                   examHistory={examHistory}

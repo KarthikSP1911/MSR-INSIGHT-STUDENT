@@ -28,6 +28,7 @@ interface PerformanceSectionProps {
   onSelectSubject: (subject: Subject) => void;
   handleUpdate: () => void;
   updateStatus: "loading" | "success" | "error" | null;
+  jobProgress: string | null;
   isCooldownActive: boolean;
   formatTime: string;
   examHistory: ExamHistoryEntry[];
@@ -186,6 +187,7 @@ export default function PerformanceSection({
   onSelectSubject,
   handleUpdate,
   updateStatus,
+  jobProgress,
   isCooldownActive,
   formatTime,
   examHistory,
@@ -207,6 +209,15 @@ export default function PerformanceSection({
           />
         }
       />
+
+      {updateStatus === "loading" && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', marginBottom: '24px', border: '1px solid var(--border-subtle)', animation: 'fadeIn 0.3s ease-out' }}>
+          <div className="pulse-dot" style={{ width: 8, height: 8, backgroundColor: 'var(--accent-primary)', borderRadius: '50%', boxShadow: '0 0 8px var(--accent-primary)' }}></div>
+          <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 500 }}>
+            {jobProgress || "Connecting to portal..."}
+          </span>
+        </div>
+      )}
 
       <div className="stats-grid">
         <div className="stat-card anim-left">
