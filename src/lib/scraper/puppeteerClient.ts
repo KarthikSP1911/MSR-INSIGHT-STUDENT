@@ -1,16 +1,16 @@
 import axios from "axios";
 import https from "https";
-import puppeteer, { type Browser } from "puppeteer";
+import puppeteer, { type Browser } from "puppeteer-core";
 
 import { mapWithConcurrency } from "./concurrency";
 
 /**
- * Ported near-verbatim from MSR-Insight's
- * backend/express/src/services/scraper/puppeteerClient.js — logs into the
- * college parent portal (https://parents.msrit.edu/newparents/) and pulls
- * the raw HTML needed to build a student's `details` record. Runs inside the
- * standalone worker process (worker/scraper-worker.ts), never inside a
- * Next.js route handler.
+ * Ported from MSR-Insight's backend/express/src/services/scraper/puppeteerClient.js — logs
+ * into the college parent portal (https://parents.msrit.edu/newparents/) and pulls the raw
+ * HTML needed to build a student's `details` record. Unlike the original (and this project's
+ * own earlier standalone-worker version), this never launches a local Chromium: it always
+ * connects to a remote browser over a per-student Browserless.io token, so the whole scrape
+ * fits inside a single Vercel serverless function invocation — see runJob.ts.
  */
 
 export interface ScrapedData {
@@ -35,6 +35,62 @@ export interface CompleteStudentData {
   timings: ScrapeTimings;
 }
 
+/**
+ * Thrown when connecting to Browserless itself fails (bad/expired/revoked token, quota
+ * exhausted, Browserless unreachable) — distinct from a portal-login failure (wrong
+ * USN/DOB/PIN), which throws a plain Error instead. Callers (runJob.ts) use this to flip
+ * `students.browserlessTokenValid` and surface a `browserless_token_invalid` job error, so
+ * the login flow knows to re-prompt for a fresh token specifically.
+ */
+export class BrowserlessTokenInvalidError extends Error {
+  constructor(message = "Could not connect to Browserless with the provided token.") {
+    super(message);
+    this.name = "BrowserlessTokenInvalidError";
+  }
+}
+
+function buildBrowserlessEndpoint(token: string): string {
+  return `wss://chrome.browserless.io?token=${encodeURIComponent(token)}`;
+}
+
+/** Races `promise` against a timeout without leaving the loser's rejection unhandled. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * Test-connects to Browserless with the given token and immediately disconnects. Used by the
+ * login route to validate a freshly-submitted token synchronously, before minting a session or
+ * enqueuing a scrape — same UX as a bad PIN (reject inline, don't discover it async).
+ */
+export async function validateBrowserlessToken(token: string, timeoutMs = 5000): Promise<boolean> {
+  let browser: Browser | null = null;
+  try {
+    browser = await withTimeout(
+      puppeteer.connect({ browserWSEndpoint: buildBrowserlessEndpoint(token) }),
+      timeoutMs,
+      "Browserless token validation",
+    );
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+}
+
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
   const idx = Math.min(sorted.length - 1, Math.floor(p * sorted.length));
@@ -53,23 +109,6 @@ const resolveParentsUrl = (href: string | undefined): string => {
 const BLOCKED_RESOURCE_TYPES = new Set(["image", "stylesheet", "font", "media"]);
 
 /**
- * Shared with worker/scraper-worker.ts's own `puppeteer.launch()` so both launch paths stay
- * in sync. Deliberately does NOT disable JavaScript or block `script` requests — the login
- * form embeds a live reCAPTCHA v2 widget (confirmed via live network capture against
- * parents.msrit.edu) that requires the page's own JS to run, so a pure-HTTP or
- * script-blocked login is not viable here.
- */
-export const PUPPETEER_LAUNCH_ARGS = [
-  "--no-sandbox",
-  "--disable-setuid-sandbox",
-  "--disable-dev-shm-usage",
-  "--disable-gpu",
-  "--disable-extensions",
-  "--disable-background-networking",
-  "--blink-settings=imagesEnabled=false",
-];
-
-/**
  * The portal's own login-error page still contains the literal string
  * "LOGOUT" somewhere in its static layout, which false-positives the
  * `content.includes("LOGOUT")` success heuristic below. This is checked
@@ -83,11 +122,11 @@ const hasLoginErrorText = (html: string): boolean => LOGIN_ERROR_TEXT_RE.test(ht
 const FETCH_CONCURRENCY = 6;
 
 /**
- * Reused across all sub-page fetches (and across jobs, since the worker process is
- * long-lived) so repeat requests to parents.msrit.edu avoid a fresh TCP+TLS handshake
- * each time. The portal's cert is a valid, CA-signed GoDaddy DV cert (verified via
- * `openssl`/`curl` against the live host — SSL_verify_result:0, not self-signed, not
- * expired) so no `rejectUnauthorized: false` bypass is needed here.
+ * Reused across all sub-page fetches within a single scrape so repeat requests to
+ * parents.msrit.edu avoid a fresh TCP+TLS handshake each time. The portal's cert is a valid,
+ * CA-signed GoDaddy DV cert (verified via `openssl`/`curl` against the live host —
+ * SSL_verify_result:0, not self-signed, not expired) so no `rejectUnauthorized: false` bypass
+ * is needed here.
  */
 const keepAliveAgent = new https.Agent({ keepAlive: true, maxSockets: 8, keepAliveMsecs: 15_000 });
 
@@ -112,9 +151,8 @@ async function fetchWithBackoff(instance: ReturnType<typeof axios.create>, url: 
 }
 
 /**
- * Shared by both the full Puppeteer login path and the warm-resync (cookie-reuse) path: given
- * dashboard HTML and a session cookie already known to be valid, fetches the attendance/CIE/
- * exam sub-pages and assembles the final result + timings.
+ * Given dashboard HTML and a session cookie already known to be valid, fetches the
+ * attendance/CIE/exam sub-pages and assembles the final result + timings.
  */
 async function buildResultFromDashboard(
   dashboardHtml: string,
@@ -219,23 +257,22 @@ export const getCompleteStudentData = async (
   year: string,
   authType: string | undefined,
   last4Digits: string | undefined,
-  /** Reuse a long-lived browser (the worker keeps one alive across jobs) instead of launching a fresh one per call. */
-  sharedBrowser?: Browser,
+  /** Decrypted per-student Browserless.io token — the only way a browser is ever obtained here. */
+  browserlessToken: string,
   /** `recurring` skips only the exam-history fetch (caller merges it back in from the prior scrape); CIE is always fetched — see scrapeAndSync.ts. */
   scope: "recurring" | "full" = "full",
 ): Promise<CompleteStudentData> => {
-  const ownsBrowser = !sharedBrowser;
-  let browser: Browser | null = sharedBrowser ?? null;
+  let browser: Browser | null = null;
   let page: Awaited<ReturnType<Browser["newPage"]>> | null = null;
   let requestCount = 0;
   const tStart = Date.now();
   try {
-    if (!browser) {
-      browser = await puppeteer.launch({
-        headless: true,
-        args: PUPPETEER_LAUNCH_ARGS,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      });
+    try {
+      browser = await puppeteer.connect({ browserWSEndpoint: buildBrowserlessEndpoint(browserlessToken) });
+    } catch (err) {
+      throw new BrowserlessTokenInvalidError(
+        err instanceof Error ? `Could not connect to Browserless: ${err.message}` : undefined,
+      );
     }
 
     page = await browser.newPage();
@@ -376,18 +413,17 @@ export const getCompleteStudentData = async (
     const cookies = await page.cookies();
     const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 
-    // Puppeteer's job is done — the rest is light HTTP+cheerio, no browser needed.
-    // Close just this page; a shared browser stays alive for the worker's next job.
+    // Puppeteer's job is done — the rest is light HTTP+cheerio, no browser needed. Every
+    // invocation owns its own connection now (no shared/reused browser across jobs), so always
+    // close it once we have the cookie we need.
     await page.close();
     page = null;
-    if (ownsBrowser) {
-      await browser.close();
-      browser = null;
-    }
+    await browser.close();
+    browser = null;
 
     return buildResultFromDashboard(content, cookieString, scope, requestCount, browserMs, loginMs, dashboardMs);
   } finally {
     if (page) await page.close().catch(() => {});
-    if (ownsBrowser && browser) await browser.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
   }
 };

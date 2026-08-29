@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -29,6 +30,13 @@ export const students = pgTable("students", {
   currentYear: integer("current_year").notNull().default(0),
   authType: text("auth_type"), // "Father's Mobile" | "Mother's Mobile" | "ABC ID"
   encryptedPin: text("encrypted_pin"), // AES-256-GCM "iv:authTag:cipher" hex
+  // Per-student Browserless.io API token (AES-256-GCM, same "iv:authTag:cipher" hex shape as
+  // encryptedPin) used to connect to a remote Chromium instead of launching one locally — see
+  // src/lib/scraper/puppeteerClient.ts. `browserlessTokenValid` flips false when a scrape fails
+  // specifically because the token was rejected by Browserless (bad/expired), as opposed to a
+  // portal-login failure — the login flow then re-prompts for a fresh token only.
+  encryptedBrowserlessToken: text("encrypted_browserless_token"),
+  browserlessTokenValid: boolean("browserless_token_valid").notNull().default(true),
   details: jsonb("details").$type<StudentDetails>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -58,9 +66,10 @@ export const scrapeJobScopes = ["recurring", "full"] as const;
 export type ScrapeJobScope = (typeof scrapeJobScopes)[number];
 
 /**
- * A queued scrape request, picked up by the standalone worker (worker/scraper-worker.ts).
- * `encryptedPin` is a snapshot of the PIN to use for this job, always encrypted at rest —
- * never store the plaintext PIN, even transiently, in this table.
+ * A queued scrape request, claimed and run in-process by an API route
+ * (src/lib/scraper/runJob.ts) rather than a standalone worker. `encryptedPin` and
+ * `encryptedBrowserlessToken` are snapshots of the credentials to use for this job, always
+ * encrypted at rest — never store either plaintext value, even transiently, in this table.
  */
 export const scrapeJobs = pgTable(
   "scrape_jobs",
@@ -72,6 +81,7 @@ export const scrapeJobs = pgTable(
     dob: text("dob").notNull(),
     authType: text("auth_type"),
     encryptedPin: text("encrypted_pin"),
+    encryptedBrowserlessToken: text("encrypted_browserless_token"),
     trigger: text("trigger").notNull().$type<ScrapeJobTrigger>(),
     scope: text("scope").notNull().$type<ScrapeJobScope>().default("full"),
     status: text("status").notNull().$type<ScrapeJobStatus>().default("pending"),
