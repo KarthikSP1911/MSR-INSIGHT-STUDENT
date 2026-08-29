@@ -95,6 +95,10 @@ export default function SimulatorSection({
   }, [semesterNumbers, effectiveSgpaBySem, semesterDefaults]);
 
   const handleSgpaChange = (semNum: number, value: string) => {
+    if (value !== "") {
+      const num = parseFloat(value);
+      if (isNaN(num) || num < 0 || num > 10) return;
+    }
     setSgpaOverrides((prev) => ({ ...prev, [semNum]: value }));
   };
 
