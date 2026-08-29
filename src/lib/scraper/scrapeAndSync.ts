@@ -1,4 +1,4 @@
-﻿import { eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { encryptText } from "@/lib/auth/crypto";
 import type { Db } from "@/lib/db/client";
@@ -76,6 +76,7 @@ export async function scrapeAndSyncStudent(
   browserlessToken: string,
   /** `recurring` skips only the exam-history fetch and merges it back in from the existing row; `full` re-fetches everything. */
   scope: ScrapeJobScope = "full",
+  onProgress?: (msg: string) => Promise<void>,
 ): Promise<ScrapeAndSyncResult> {
   const { day, month, year } = parseDobParts(dob);
 
@@ -90,6 +91,7 @@ export async function scrapeAndSyncStudent(
     plainPin,
     browserlessToken,
     scope,
+    onProgress,
   );
 
   const tParseStart = Date.now();

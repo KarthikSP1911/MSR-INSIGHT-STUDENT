@@ -1,4 +1,4 @@
-﻿import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { decryptText } from "@/lib/auth/crypto";
 import type { Db } from "@/lib/db/client";
@@ -58,6 +58,10 @@ export async function claimAndRunJob(db: Db, jobId: string): Promise<void> {
     const plainBrowserlessToken = decryptText(job.encryptedBrowserlessToken);
     if (!plainBrowserlessToken) throw new Error("Failed to decrypt Browserless token for scrape job.");
 
+    const onProgress = async (msg: string) => {
+      await db.update(scrapeJobs).set({ progress: msg }).where(eq(scrapeJobs.id, job.id));
+    };
+
     const result = await scrapeAndSyncStudent(
       db,
       job.usn,
@@ -66,6 +70,7 @@ export async function claimAndRunJob(db: Db, jobId: string): Promise<void> {
       plainPin,
       plainBrowserlessToken,
       job.scope,
+      onProgress,
     );
 
     await db

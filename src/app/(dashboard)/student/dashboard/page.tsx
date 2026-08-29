@@ -71,7 +71,7 @@ export default function StudentDashboard() {
   // reading it in a state initializer (rather than an effect) avoids a spurious setState-in-effect.
   const [syncJobId, setSyncJobId] = useState<string | null>(() => searchParams.get("syncJobId"));
 
-  const { status: jobStatus, error: jobError } = useScrapeJobPolling(syncJobId);
+  const { status: jobStatus, progress: jobProgress, error: jobError } = useScrapeJobPolling(syncJobId);
 
   // Drop ?syncJobId= from the URL once captured, so a refresh doesn't re-trigger it.
   // (router.replace isn't a setState call, so this doesn't trip set-state-in-effect.)
@@ -357,7 +357,7 @@ export default function StudentDashboard() {
   // (worker timeout, MAX_POLL_MS client backstop, or a lost mobile connection), so this can't
   // strand the student here indefinitely.
   if (updateStatus === "loading" && !hasScrapedData(student.details)) {
-    return <LoadingScreen message="Verifying your details and syncing your portal data — this can take up to a minute." />;
+    return <LoadingScreen message={jobProgress || "Verifying your details and syncing your portal data — this can take up to a minute."} />;
   }
 
   return (

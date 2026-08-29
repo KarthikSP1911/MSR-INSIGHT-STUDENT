@@ -50,6 +50,13 @@
       "when": 1787979734744,
       "tag": "0006_same_shocker",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787980632143,
+      "tag": "0007_fresh_blue_marvel",
+      "breakpoints": true
     }
   ]
 }

@@ -85,6 +85,7 @@ export const scrapeJobs = pgTable(
     trigger: text("trigger").notNull().$type<ScrapeJobTrigger>(),
     scope: text("scope").notNull().$type<ScrapeJobScope>().default("full"),
     status: text("status").notNull().$type<ScrapeJobStatus>().default("pending"),
+    progress: text("progress"),
     error: text("error"),
     resultSummary: jsonb("result_summary"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

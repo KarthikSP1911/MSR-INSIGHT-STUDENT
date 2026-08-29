@@ -25,6 +25,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       data: {
         id: job.id,
         status: job.status,
+        progress: job.progress,
         error: job.error,
         resultSummary: job.resultSummary,
       },

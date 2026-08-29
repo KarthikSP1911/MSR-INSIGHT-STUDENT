@@ -162,7 +162,9 @@ async function buildResultFromDashboard(
   browserMs: number,
   loginMs: number,
   dashboardMs: number,
+  onProgress?: (msg: string) => Promise<void>,
 ): Promise<CompleteStudentData> {
+  if (onProgress) await onProgress("Parsing dashboard data...");
   const scrapedData: ScrapedData = { dashboard: dashboardHtml, attendance: {}, cie: {} };
 
   const cheerio = await import("cheerio");
@@ -204,6 +206,8 @@ async function buildResultFromDashboard(
     },
     httpsAgent: keepAliveAgent,
   });
+
+  if (onProgress) await onProgress("Downloading attendance and CIE marks...");
 
   const uniqueUrls = [...urlToTargets.keys()];
   const fetchDurationsMs: number[] = [];
@@ -261,11 +265,14 @@ export const getCompleteStudentData = async (
   browserlessToken: string,
   /** `recurring` skips only the exam-history fetch (caller merges it back in from the prior scrape); CIE is always fetched — see scrapeAndSync.ts. */
   scope: "recurring" | "full" = "full",
+  onProgress?: (msg: string) => Promise<void>,
 ): Promise<CompleteStudentData> => {
   let browser: Browser | null = null;
   let page: Awaited<ReturnType<Browser["newPage"]>> | null = null;
   let requestCount = 0;
   const tStart = Date.now();
+
+  if (onProgress) await onProgress("Connecting to browserless server...");
   try {
     try {
       browser = await puppeteer.connect({ browserWSEndpoint: buildBrowserlessEndpoint(browserlessToken) });
@@ -285,6 +292,7 @@ export const getCompleteStudentData = async (
         req.continue();
       }
     });
+    if (onProgress) await onProgress("Navigating to student portal...");
     await page.goto("https://parents.msrit.edu/newparents/", {
       waitUntil: "domcontentloaded",
       timeout: 60000,
@@ -293,6 +301,7 @@ export const getCompleteStudentData = async (
     const tAfterGoto = Date.now();
     const browserMs = tAfterGoto - tStart;
 
+    if (onProgress) await onProgress("Logging in with USN and Date of Birth...");
     await page.type("#username", usn);
 
     await page.evaluate(
@@ -350,6 +359,7 @@ export const getCompleteStudentData = async (
     const loginMs = tAfterFirstStage - tAfterGoto;
 
     if (!isDashboardUrl && !hasLogout) {
+      if (onProgress) await onProgress("Verifying secondary PIN...");
       const hasSelect = await page.$('#id-type-select, select[name="idType"]').catch(() => null);
       const hasDigits = await page.$(".digit-input, #enteredid").catch(() => null);
 
@@ -421,7 +431,7 @@ export const getCompleteStudentData = async (
     await browser.close();
     browser = null;
 
-    return buildResultFromDashboard(content, cookieString, scope, requestCount, browserMs, loginMs, dashboardMs);
+    return buildResultFromDashboard(content, cookieString, scope, requestCount, browserMs, loginMs, dashboardMs, onProgress);
   } finally {
     if (page) await page.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
