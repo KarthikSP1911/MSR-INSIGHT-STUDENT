@@ -31,7 +31,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ usn
     }
 
     if (hasScrapedData(student.details)) {
-      const { encryptedPin: _encryptedPin, ...safeStudent } = student;
+      const { encryptedPin: _encryptedPin, encryptedBrowserlessToken: _encryptedBrowserlessToken, ...safeStudent } = student;
       return NextResponse.json({ success: true, source: "database", data: safeStudent });
     }
 
@@ -43,14 +43,26 @@ export async function GET(_request: Request, { params }: { params: Promise<{ usn
     }
 
     const { decryptText } = await import("@/lib/auth/crypto");
+    const plainBrowserlessToken = student.encryptedBrowserlessToken ? decryptText(student.encryptedBrowserlessToken) : null;
     const jobId = await enqueueScrapeJob(db, {
       usn,
       dob: student.dob,
       authType: student.authType,
       plainPin: decryptText(student.encryptedPin),
+      plainBrowserlessToken,
       trigger: "manual_update",
       scope: "full",
     });
+
+    // Fire-and-forget the scrape (same pattern as login + update routes).
+    const { headers } = await import("next/headers");
+    const host = (await headers()).get("host") ?? "localhost:3000";
+    const protocol = host.startsWith("localhost") ? "http" : "https";
+    fetch(`${protocol}://${host}/api/scrape-jobs/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId }),
+    }).catch((e) => console.error("[api/report/student] fire-and-forget scrape trigger failed:", e));
 
     return NextResponse.json({ success: true, source: "scraper", data: { jobId } }, { status: 202 });
   } catch (err) {
