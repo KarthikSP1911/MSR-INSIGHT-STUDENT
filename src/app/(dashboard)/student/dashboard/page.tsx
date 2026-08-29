@@ -108,6 +108,9 @@ export default function StudentDashboard() {
       const response = await fetch("/api/auth/profile");
       const body = await response.json();
       if (!response.ok || !body.success) {
+        // Clear the stale/invalid session cookie before redirecting, otherwise the login
+        // page's own server-side check will see it and bounce them right back here in an infinite loop.
+        await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
         throw { redirectTo: "/student-login", status: response.status };
       }
       return body.data as Student;
