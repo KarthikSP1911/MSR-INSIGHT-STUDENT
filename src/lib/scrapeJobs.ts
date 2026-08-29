@@ -1,4 +1,4 @@
-﻿import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import type { Db } from "@/lib/db/client";
 import { scrapeJobs, type ScrapeJobScope, type ScrapeJobTrigger } from "@/lib/db/schema";
@@ -20,7 +20,12 @@ export interface EnqueueScrapeJobInput {
 /** Postgres SQLSTATE for a unique-constraint violation — surfaced as `.code` by the `@neondatabase/serverless` driver. */
 const UNIQUE_VIOLATION = "23505";
 function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: string }).code === UNIQUE_VIOLATION;
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as any;
+  if (e.code === UNIQUE_VIOLATION) return true;
+  if (e.cause?.code === UNIQUE_VIOLATION) return true;
+  const msg = e.message || e.cause?.message || "";
+  return msg.includes("duplicate key value violates unique constraint");
 }
 
 /**
