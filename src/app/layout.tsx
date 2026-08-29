@@ -13,6 +13,11 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "MSR Insight",
   description: "Student academic dashboard: performance, analytics, exam history, and more.",
+  appleWebApp: {
+    capable: true,
+    title: "MSR Insight",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
