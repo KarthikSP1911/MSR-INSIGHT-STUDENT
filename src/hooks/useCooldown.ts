@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 
 /**
- * Manages the 5-minute cooldown state for the dashboard update feature.
+ * Manages the cooldown state for the dashboard update feature.
  * Calculates remaining time based on a target ISO timestamp.
  */
 export const useCooldown = (nextAllowedAt: string | null) => {

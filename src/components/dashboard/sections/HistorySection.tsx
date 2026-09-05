@@ -107,21 +107,26 @@ export default function HistorySection({
                   </div>
                 </div>
               </div>
-              <div className="dashboard-table-container">
-                <table className="dashboard-table">
+              <div className="dashboard-table-container history-table-container">
+                <table className="dashboard-table history-table">
                   <thead>
                     <tr>
-                      <th>Code</th>
-                      <th>Course</th>
-                      <th style={{ textAlign: "right" }}>Grade</th>
+                      <th className="history-col-code">Code</th>
+                      <th className="history-col-course">Course</th>
+                      <th className="history-col-mobile-merged" style={{ display: "none" }}>Course</th>
+                      <th className="history-col-grade" style={{ textAlign: "right", width: "70px" }}>Grade</th>
                     </tr>
                   </thead>
                   <tbody>
                     {sem.courses?.map((c, i) => (
                       <tr key={i}>
-                        <td style={{ color: "var(--text-muted)", fontSize: "12px" }}>{c.code}</td>
-                        <td style={{ fontSize: "13px" }}>{c.name}</td>
-                        <td style={{ textAlign: "right", fontWeight: "bold", color: GRADE_COLORS[c.grade] || "var(--text-primary)" }}>
+                        <td className="history-col-code" style={{ color: "var(--text-muted)", fontSize: "12px" }}>{c.code}</td>
+                        <td className="history-col-course" style={{ fontSize: "13px" }}>{c.name}</td>
+                        <td className="history-col-mobile-merged" style={{ display: "none" }}>
+                          <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "4px" }}>{c.code}</div>
+                          <div style={{ fontSize: "12px", lineHeight: "1.3", wordBreak: "break-word", whiteSpace: "normal" }}>{c.name}</div>
+                        </td>
+                        <td className="history-col-grade" style={{ textAlign: "right", fontWeight: "bold", color: GRADE_COLORS[c.grade] || "var(--text-primary)" }}>
                           {c.grade}
                         </td>
                       </tr>

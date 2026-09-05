@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import QueryProvider from "@/providers/QueryProvider";
+import PostHogProvider from "@/providers/PostHogProvider";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -24,7 +25,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
-        <QueryProvider>{children}</QueryProvider>
+        <PostHogProvider>
+          <QueryProvider>{children}</QueryProvider>
+        </PostHogProvider>
         <Analytics />
         <SpeedInsights />
       </body>

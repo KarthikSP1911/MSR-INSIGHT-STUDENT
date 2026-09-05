@@ -1,7 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 
-/** Matches the ~30-day session TTL MSR-Insight used for its Redis sessions. */
-const SESSION_TTL = "30d";
+/** 160-day session TTL — matches the persistent cookie maxAge when "Remember Me" is checked. */
+const SESSION_TTL = "160d";
 
 export interface StudentTokenPayload {
   usn: string;

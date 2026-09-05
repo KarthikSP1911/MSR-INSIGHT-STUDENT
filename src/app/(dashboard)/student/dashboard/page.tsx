@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Target, History as HistoryIcon, Gamepad2, LogOut, BookOpen } from "lucide-react";
+import { Target, History as HistoryIcon, Gamepad2, LogOut, BookOpen, Settings, ArrowLeft } from "lucide-react";
 // import { BarChart3 } from "lucide-react"; // Analytics tab temporarily disabled
 import "@/styles/StudentDashboard.css";
 import SubjectDetail from "@/app/(dashboard)/student/dashboard/components/SubjectDetail";
@@ -19,6 +19,7 @@ import PerformanceSection from "@/components/dashboard/sections/PerformanceSecti
 import HistorySection from "@/components/dashboard/sections/HistorySection";
 import SimulatorSection from "@/components/dashboard/sections/SimulatorSection";
 import NotesSection from "@/components/dashboard/sections/NotesSection";
+import SettingsSection from "@/components/dashboard/sections/SettingsSection";
 import LoadingScreen from "@/components/dashboard/LoadingScreen";
 import BirthdayBanner from "@/components/dashboard/BirthdayBanner";
 
@@ -52,10 +53,24 @@ const PROFILE_QUERY_KEY = ["studentProfile"];
 export default function StudentDashboard() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [mobileImgError, setMobileImgError] = useState(false);
 
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const activeTab = searchParams.get("tab") || "performance";
+
+  const [avatarSeedSuffix, setAvatarSeedSuffix] = useState("");
+  useEffect(() => {
+    const saved = localStorage.getItem("avatarSeedSuffix");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (saved) setAvatarSeedSuffix(saved);
+  }, []);
+  const handleAvatarChange = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const newSuffix = Math.random().toString(36).substring(7);
+    setAvatarSeedSuffix(newSuffix);
+    localStorage.setItem("avatarSeedSuffix", newSuffix);
+  };
 
   const [nextAllowedAt, setNextAllowedAt] = useState<string | null>(null);
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
@@ -271,7 +286,7 @@ export default function StudentDashboard() {
   const derivedNextAllowedAt = useMemo(() => {
     const lastSync = detailsBlob.last_updated;
     if (!lastSync) return null;
-    return new Date(new Date(lastSync).getTime() + 5 * 60 * 1000).toISOString();
+    return new Date(new Date(lastSync).getTime() + 1 * 60 * 1000).toISOString();
   }, [detailsBlob]);
 
   const { formatTime, isCooldownActive } = useCooldown(nextAllowedAt ?? derivedNextAllowedAt);
@@ -381,6 +396,7 @@ export default function StudentDashboard() {
             // { id: "analytics", icon: <BarChart3 size={20} />, label: "Analytics" },
             { id: "history", icon: <HistoryIcon size={20} />, label: "Exam History" },
             { id: "simulator", icon: <Gamepad2 size={20} />, label: "Simulator" },
+            { id: "settings", icon: <Settings size={20} />, label: "Settings" },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -391,22 +407,41 @@ export default function StudentDashboard() {
             </button>
           ))}
         </nav>
-        <SidebarProfile user={student} onLogout={handleLogout} />
+        <SidebarProfile user={student} onLogout={handleLogout} avatarSeedSuffix={avatarSeedSuffix} onAvatarChange={handleAvatarChange} />
       </aside>
 
       <header className="mobile-top-navbar">
         <div className="mobile-nav-brand">
+          {selectedSubject && (
+            <button 
+              className="mobile-header-back-btn" 
+              onClick={() => setSelectedSubject(null)}
+              style={{ display: "flex", alignItems: "center", background: "none", border: "none", color: "var(--text-primary)", cursor: "pointer", padding: "4px" }}
+            >
+              <ArrowLeft size={20} />
+            </button>
+          )}
           <Image src="/logo-icon.svg" alt="logo" width={28} height={28} priority />
           <span className="mobile-app-name">MSR Insight</span>
         </div>
         <div className="mobile-nav-profile" style={{ position: "relative" }}>
-          <div
-            className="profile-initials-avatar"
-            style={{ width: 32, height: 32, fontSize: 12, cursor: "pointer" }}
-            onClick={() => setShowMobileProfileMenu(!showMobileProfileMenu)}
-          >
-            {student?.name?.charAt(0) || "S"}
-          </div>
+          {student?.usn && !mobileImgError ? (
+            <img
+              src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${encodeURIComponent(student.usn + avatarSeedSuffix)}`}
+              alt="Profile"
+              style={{ width: 32, height: 32, cursor: "pointer", borderRadius: "50%", background: "var(--bg-card)", border: "1px solid var(--border-subtle)" }}
+              onClick={() => setShowMobileProfileMenu(!showMobileProfileMenu)}
+              onError={() => setMobileImgError(true)}
+            />
+          ) : (
+            <div
+              className="profile-initials-avatar"
+              style={{ width: 32, height: 32, fontSize: 12, cursor: "pointer" }}
+              onClick={() => setShowMobileProfileMenu(!showMobileProfileMenu)}
+            >
+              {student?.name?.charAt(0) || "S"}
+            </div>
+          )}
           {showMobileProfileMenu && (
             <div
               className="mobile-profile-dropdown"
@@ -430,6 +465,26 @@ export default function StudentDashboard() {
                 <div style={{ fontSize: "13px", fontWeight: "bold", color: "var(--text-primary)" }}>{student?.name}</div>
                 <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{student?.usn}</div>
               </div>
+              <button
+                onClick={(e: React.MouseEvent) => {
+                  handleAvatarChange(e);
+                  setShowMobileProfileMenu(false);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-secondary)",
+                  cursor: "pointer",
+                  padding: "4px 0",
+                  fontSize: "13px",
+                  textAlign: "left",
+                }}
+              >
+                Change Avatar
+              </button>
               <button
                 onClick={handleLogout}
                 style={{
@@ -536,6 +591,7 @@ export default function StudentDashboard() {
                   isLateralEntry={isLateralEntry}
                 />
               )}
+              {activeTab === "settings" && <SettingsSection />}
             </>
           )}
         </div>
@@ -549,6 +605,7 @@ export default function StudentDashboard() {
           // { id: "analytics", icon: <BarChart3 size={20} />, label: "Analytics" },
           { id: "history", icon: <HistoryIcon size={20} />, label: "History" },
           { id: "simulator", icon: <Gamepad2 size={20} />, label: "Sim" },
+          { id: "settings", icon: <Settings size={20} />, label: "Settings" },
         ].map((tab) => (
           <button
             key={tab.id}

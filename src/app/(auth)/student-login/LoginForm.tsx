@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -111,6 +111,7 @@ export default function LoginForm() {
   // When only the Browserless token needs re-entry (PIN is still valid), set this
   // flag to show a targeted prompt rather than the full secondary-auth form.
   const [tokenRefreshOnly, setTokenRefreshOnly] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [infoMsg, setInfoMsg] = useState("");
@@ -201,6 +202,7 @@ export default function LoginForm() {
       const payload: Record<string, unknown> = {
         usn: usn.trim().toUpperCase(),
         dob: formattedDate,
+        rememberMe,
       };
       if (showSecondaryAuth) {
         if (!tokenRefreshOnly) {
@@ -357,6 +359,16 @@ export default function LoginForm() {
               </div>
             </div>
           )}
+
+          <label className="remember-me-label">
+            <input
+              type="checkbox"
+              className="remember-me-checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+            />
+            <span>Remember me</span>
+          </label>
 
           {!showSecondaryAuth && (
             <button

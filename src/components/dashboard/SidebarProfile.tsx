@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Image from "next/image";
 import { LogOut } from "lucide-react";
 
@@ -11,9 +11,13 @@ interface SidebarProfileProps {
     usn?: string | null;
   } | null;
   onLogout: () => void;
+  avatarSeedSuffix?: string;
+  onAvatarChange?: (e: React.MouseEvent) => void;
 }
 
-const SidebarProfile: React.FC<SidebarProfileProps> = ({ user, onLogout }) => {
+const SidebarProfile: React.FC<SidebarProfileProps> = ({ user, onLogout, avatarSeedSuffix = "", onAvatarChange }) => {
+  const [imgError, setImgError] = useState(false);
+
   if (!user) {
     return (
       <div className="sidebar-profile-skeleton">
@@ -38,8 +42,17 @@ const SidebarProfile: React.FC<SidebarProfileProps> = ({ user, onLogout }) => {
   return (
     <div className="sidebar-profile-section">
       <div className="profile-card">
-        <div className="profile-image-container">
-          {user.profileImage ? (
+        <div className="profile-image-container" onClick={onAvatarChange} style={{ cursor: onAvatarChange ? "pointer" : "default" }} title={onAvatarChange ? "Click to change avatar" : undefined}>
+          {user.usn && !imgError ? (
+            <img 
+              src={`https://api.dicebear.com/10.x/bottts-neutral/svg?seed=${encodeURIComponent(user.usn + avatarSeedSuffix)}`} 
+              alt={user.name ?? "Student"} 
+              width={40} 
+              height={40} 
+              className="profile-avatar" 
+              onError={() => setImgError(true)}
+            />
+          ) : user.profileImage ? (
             <Image src={user.profileImage} alt={user.name ?? "Student"} width={40} height={40} className="profile-avatar" />
           ) : (
             <div className="profile-initials-avatar">{initials}</div>

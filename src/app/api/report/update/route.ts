@@ -1,4 +1,4 @@
-﻿import { eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { decryptText } from "@/lib/auth/crypto";
@@ -8,11 +8,11 @@ import { students } from "@/lib/db/schema";
 import { enqueueScrapeJob } from "@/lib/scrapeJobs";
 import { updateSchema } from "@/lib/validation/auth";
 
-const COOLDOWN_MS = 5 * 60 * 1000;
+const COOLDOWN_MS = 1 * 60 * 1000;
 
 /**
  * Manual "Sync" button. Ported from report.service.js
- * `handleManualReportUpdate()`: enforces a 5-minute cooldown against
+ * `handleManualReportUpdate()`: enforces a 1-minute cooldown against
  * details.last_updated (a plain timestamp diff, not a rate limiter), and
  * requires a stored PIN/authType or asks the client to re-login
  * (`requiresRelogin`). The synchronous scrape is replaced by enqueue+poll.

@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     await db.insert(students).values({ usn, dob, currentYear: 1, details: {} });
 
     const token = await signStudentToken(usn);
-    await setSessionCookie(token);
+    await setSessionCookie(token, false /* rememberMe */);
 
     return NextResponse.json(
       { success: true, message: "User registered successfully", data: { usn } },

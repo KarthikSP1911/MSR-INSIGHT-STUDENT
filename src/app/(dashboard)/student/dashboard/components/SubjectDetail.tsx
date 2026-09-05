@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Clock, PieChart } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import "@/styles/SubjectDetail.css";
 
@@ -65,7 +65,7 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [targetPct, setTargetPct] = useState(85);
-  const [showAssessments, setShowAssessments] = useState(false);
+  const [showAssessments, setShowAssessments] = useState(true);
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
 
   useEffect(() => {
@@ -166,7 +166,7 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
   return (
     <div className="sd-page">
       <div className="sd-page-titlebar">
-        <button className="sd-back-btn" onClick={onBack}>
+        <button className="sd-back-btn sd-desktop-back-btn" onClick={onBack}>
           <ArrowLeft size={16} /> Back
         </button>
         <div className="sd-subject-meta">
@@ -223,6 +223,43 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
               <span className="sd-kpi-max">/50</span>
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* NEW ATTENDANCE SUMMARY FOR MOBILE */}
+      <div className="sd-mobile-attendance-summary">
+        <div className="sd-mobile-att-grid">
+          <div className="sd-mobile-att-item">
+            <div className="sd-mobile-att-header">
+              <CheckCircle2 size={18} color="var(--success)" />
+              <span className="sd-mobile-att-label">Attended</span>
+            </div>
+            <span className="sd-mobile-att-val" style={{ color: "var(--success)" }}>{presentCount}</span>
+          </div>
+          <div className="sd-mobile-att-item">
+            <div className="sd-mobile-att-header">
+              <XCircle size={18} color="var(--error)" />
+              <span className="sd-mobile-att-label">Missed</span>
+            </div>
+            <span className="sd-mobile-att-val" style={{ color: "var(--error)" }}>{absentCount}</span>
+          </div>
+          <div className="sd-mobile-att-item">
+            <div className="sd-mobile-att-header">
+              <Clock size={18} color="#3b82f6" />
+              <span className="sd-mobile-att-label">Remaining</span>
+            </div>
+            <span className="sd-mobile-att-val" style={{ color: "#3b82f6" }}>{remainingCount}</span>
+          </div>
+          <div className="sd-mobile-att-item">
+            <div className="sd-mobile-att-header">
+              <PieChart size={18} color="#f59e0b" />
+              <span className="sd-mobile-att-label">Percentage</span>
+            </div>
+            <span className="sd-mobile-att-val" style={{ color: "#f59e0b" }}>{Math.round(subject.attendance || 0)}%</span>
+          </div>
+        </div>
+        <div className="sd-mobile-att-total">
+          Total : {totalClasses}
         </div>
       </div>
 

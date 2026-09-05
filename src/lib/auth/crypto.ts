@@ -1,10 +1,10 @@
 import crypto from "crypto";
 
 /**
- * AES-256-GCM encryption for the portal PIN at rest, ported from MSR-Insight's
- * backend/express/src/utils/crypto.js. Key material is derived from
- * ENCRYPTION_SECRET (falling back to JWT_SECRET, then a default) so a fresh
- * checkout still works before secrets are configured, matching the source.
+ * AES-256-GCM encryption for the portal PIN and Browserless token at rest,
+ * ported from MSR-Insight's backend/express/src/utils/crypto.js. Key material
+ * is derived from ENCRYPTION_SECRET (falling back to JWT_SECRET, then a default)
+ * so a fresh checkout still works before secrets are configured, matching the source.
  */
 const ALGORITHM = "aes-256-gcm";
 

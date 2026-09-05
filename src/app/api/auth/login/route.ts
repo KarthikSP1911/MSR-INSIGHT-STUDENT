@@ -1,4 +1,4 @@
-﻿import { eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { normalizeAuthType } from "@/lib/auth/authType";
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const { dob, authType, last4Digits, browserlessToken, forceResync } = parsed.data;
+  const { dob, authType, last4Digits, browserlessToken, forceResync, rememberMe } = parsed.data;
   const usn = parsed.data.usn.toUpperCase();
 
   try {
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
       !hasNewTokenProvided
     ) {
       const token = await signStudentToken(usn);
-      await setSessionCookie(token);
+      await setSessionCookie(token, Boolean(rememberMe));
       return NextResponse.json({
         success: true,
         message: "Login successful",
@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
     });
 
     const sessionToken = await signStudentToken(usn);
-    await setSessionCookie(sessionToken);
+    await setSessionCookie(sessionToken, Boolean(rememberMe));
 
     // Fire-and-forget: trigger the scrape in-process so the login response returns
     // immediately while the scrape runs in the background via Vercel's extended

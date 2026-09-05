@@ -3,19 +3,33 @@ import { cookies } from "next/headers";
 /** httpOnly JWT cookie holding the student session. Same-origin only — no header/localStorage fallback. */
 export const SESSION_COOKIE_NAME = "student_session";
 
-const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
+const ONE_SIXTY_DAYS_SECONDS = 160 * 24 * 60 * 60;
 
-export async function setSessionCookie(token: string): Promise<void> {
+/**
+ * Sets the session cookie.
+ *
+ * @param token       - The signed JWT string.
+ * @param rememberMe  - When true, sets a persistent cookie (160-day maxAge + expires).
+ *                      When false, sets a session cookie (no maxAge/expires) so it is
+ *                      cleared when the browser is fully closed.
+ */
+export async function setSessionCookie(
+  token: string,
+  rememberMe: boolean,
+): Promise<void> {
   const store = await cookies();
   store.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
     path: "/",
-    maxAge: THIRTY_DAYS_SECONDS,
-    // Some older mobile WebViews only honor `Expires`, not `Max-Age` — set both so the
-    // 30-day session reliably persists across mobile browsers, not just modern ones.
-    expires: new Date(Date.now() + THIRTY_DAYS_SECONDS * 1000),
+    // Persistent cookie: set both maxAge and expires so older mobile WebViews
+    // (which only honour `Expires`, not `Max-Age`) also respect the 160-day TTL.
+    // Session cookie: omit both so the browser clears it on close.
+    ...(rememberMe && {
+      maxAge: ONE_SIXTY_DAYS_SECONDS,
+      expires: new Date(Date.now() + ONE_SIXTY_DAYS_SECONDS * 1000),
+    }),
   });
 }
 
