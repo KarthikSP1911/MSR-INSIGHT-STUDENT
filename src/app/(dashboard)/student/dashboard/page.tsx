@@ -313,9 +313,23 @@ export default function StudentDashboard() {
   const handleTabChange = (tab: string) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", tab);
-    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    // Use replace so tab switches don't stack browser history entries —
+    // prevents the native back button from cycling through every tab visited.
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     setSelectedSubject(null);
   };
+
+  // When a subject is opened (state-only — no URL change), push a synthetic
+  // history entry so the browser / device back button closes the detail view
+  // instead of navigating all the way back to the login page.
+  useEffect(() => {
+    if (selectedSubject) {
+      window.history.pushState({ subjectDetail: true }, "");
+      const handlePop = () => setSelectedSubject(null);
+      window.addEventListener("popstate", handlePop);
+      return () => window.removeEventListener("popstate", handlePop);
+    }
+  }, [selectedSubject]);
 
   const handleLogout = async () => {
     try {
