@@ -335,9 +335,9 @@ export default function LoginForm() {
                     href="https://www.browserless.io"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="form-label-link"
+                    style={{ color: "#4bdbffff", textDecoration: "underline", cursor: "pointer" }}
                   >
-                    (get one free at browserless.io)
+                    Click here to create one
                   </a>
                 </label>
                 <input
