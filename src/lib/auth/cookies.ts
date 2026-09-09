@@ -21,7 +21,7 @@ export async function setSessionCookie(
   store.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: "lax",
     path: "/",
     // Persistent cookie: set both maxAge and expires so older mobile WebViews
     // (which only honour `Expires`, not `Max-Age`) also respect the 160-day TTL.

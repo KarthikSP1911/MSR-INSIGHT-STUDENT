@@ -118,16 +118,37 @@ export default function StudentDashboard() {
     error: profileError,
   } = useQuery<Student>({
     queryKey: PROFILE_QUERY_KEY,
-    retry: false,
+    // Only give up immediately on a definitive 401 (truly unauthenticated).
+    // Allow up to 2 retries for transient 5xx / network errors so a cold-start
+    // DB hiccup doesn't permanently destroy a valid "Remember Me" cookie.
+    retry: (failureCount, error) => {
+      const err = error as { status?: number };
+      if (err?.status === 401) return false;
+      return failureCount < 2;
+    },
+    retryDelay: 1000,
     queryFn: async () => {
       const response = await fetch("/api/auth/profile");
-      const body = await response.json();
-      if (!response.ok || !body.success) {
-        // Clear the stale/invalid session cookie before redirecting, otherwise the login
-        // page's own server-side check will see it and bounce them right back here in an infinite loop.
+      // Tolerate a body that isn't JSON (e.g. a Next.js 500 HTML page on cold-start).
+      const body: Record<string, unknown> = await response.json().catch(() => ({}));
+
+      if (response.status === 401) {
+        // Definitively unauthenticated — clear the invalid/expired cookie so the login
+        // page's own server-side check doesn't see it and bounce them straight back here.
         await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
-        throw { redirectTo: "/student-login", status: response.status };
+        throw { redirectTo: "/student-login", status: 401 };
       }
+
+      if (!response.ok || !body.success) {
+        // Transient server / network error — throw a plain Error so TanStack Query
+        // retries rather than treating this as a definitive auth failure.
+        throw new Error(
+          typeof body.message === "string"
+            ? body.message
+            : `Profile fetch failed (${response.status})`,
+        );
+      }
+
       return body.data as Student;
     },
   });
