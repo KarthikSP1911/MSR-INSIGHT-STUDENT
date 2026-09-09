@@ -248,7 +248,10 @@ export default function LoginForm() {
       }
 
       const jobId = result.data?.jobId as string | null | undefined;
-      router.push(jobId ? `/student/dashboard?syncJobId=${jobId}` : "/student/dashboard");
+      // Use a hard navigation (not router.push) so the browser fully commits the
+      // httpOnly Set-Cookie from the login API before the dashboard's /api/auth/profile
+      // fetch fires. router.push is client-side and can race the cookie on mobile.
+      window.location.href = jobId ? `/student/dashboard?syncJobId=${jobId}` : "/student/dashboard";
     } catch (err) {
       console.error("[LoginForm] login request failed:", err);
       setError("Invalid credentials or login failed");
