@@ -57,6 +57,13 @@
       "when": 1787980632143,
       "tag": "0007_fresh_blue_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791300324602,
+      "tag": "0008_drop_browserless_columns",
+      "breakpoints": true
     }
   ]
 }
