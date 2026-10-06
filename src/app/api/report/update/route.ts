@@ -5,17 +5,23 @@ import { decryptText } from "@/lib/auth/crypto";
 import { getCurrentUsn } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { students } from "@/lib/db/schema";
+import { nextManualRefreshAt } from "@/lib/scrapePolicy";
 import { enqueueScrapeJob } from "@/lib/scrapeJobs";
+import { runJobAfterResponse } from "@/lib/scraper/scheduleJob";
 import { updateSchema } from "@/lib/validation/auth";
 
-const COOLDOWN_MS = 1 * 60 * 1000;
+/** The scrape runs inside this route's budget via `after()`; 60s is the Vercel Hobby maximum. */
+export const maxDuration = 60;
 
 /**
- * Manual "Sync" button. Ported from report.service.js
- * `handleManualReportUpdate()`: enforces a 1-minute cooldown against
- * details.last_updated (a plain timestamp diff, not a rate limiter), and
- * requires a stored PIN/authType or asks the client to re-login
- * (`requiresRelogin`). The synchronous scrape is replaced by enqueue+poll.
+ * Manual refresh buttons. Ported from report.service.js `handleManualReportUpdate()`: enforces a
+ * 1-minute cooldown (a plain timestamp diff, not a rate limiter) and requires a stored PIN/authType
+ * or asks the client to re-login (`requiresRelogin`). The synchronous scrape is replaced by
+ * enqueue+poll.
+ *
+ * `scope: "current"` (default) refreshes attendance and CIE marks, cooling down against
+ * `details.last_updated`. `scope: "exam_history"` refreshes exam results, cooling down against
+ * `examHistoryUpdatedAt`.
  */
 export async function POST(request: NextRequest) {
   const sessionUsn = await getCurrentUsn();
@@ -32,6 +38,7 @@ export async function POST(request: NextRequest) {
     );
   }
   const usn = parsed.data.usn.toUpperCase();
+  const scope = parsed.data.scope ?? "current";
   if (usn !== sessionUsn) {
     return NextResponse.json({ success: false, message: "Forbidden" }, { status: 403 });
   }
@@ -43,22 +50,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "Student record not found" }, { status: 404 });
     }
 
-    const lastSyncStr = student.details?.last_updated;
-    if (lastSyncStr) {
-      const lastSync = new Date(lastSyncStr).getTime();
-      const diff = Date.now() - lastSync;
-      if (diff < COOLDOWN_MS) {
-        return NextResponse.json(
-          {
-            success: false,
-            allowed: false,
-            requiresRelogin: false,
-            message: `Rate limit exceeded. Please wait ${Math.ceil((COOLDOWN_MS - diff) / 60000)}m before updating again.`,
-            nextAllowedAt: new Date(lastSync + COOLDOWN_MS).toISOString(),
-          },
-          { status: 429 },
-        );
-      }
+    const lastRefreshed = scope === "exam_history" ? student.examHistoryUpdatedAt : student.details?.last_updated;
+    const nextAllowedAt = nextManualRefreshAt(lastRefreshed);
+    if (nextAllowedAt) {
+      const secondsLeft = Math.ceil((nextAllowedAt.getTime() - Date.now()) / 1000);
+      return NextResponse.json(
+        {
+          success: false,
+          allowed: false,
+          requiresRelogin: false,
+          message: `Rate limit exceeded. Please wait ${secondsLeft}s before updating again.`,
+          nextAllowedAt: nextAllowedAt.toISOString(),
+        },
+        { status: 429 },
+      );
     }
 
     if (!student.dob) {
@@ -89,16 +94,9 @@ export async function POST(request: NextRequest) {
       authType: targetAuthType,
       plainPin: targetPin,
       trigger: "manual_update",
-      scope: "current",
+      scope,
     });
-
-    // Fire-and-forget: trigger the scrape without blocking the response.
-    const runUrl = new URL("/api/scrape-jobs/run", request.url);
-    fetch(runUrl.toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId }),
-    }).catch((e) => console.error("[api/report/update] fire-and-forget scrape trigger failed:", e));
+    runJobAfterResponse(db, jobId);
 
     return NextResponse.json({ success: true, allowed: true, data: { jobId } });
   } catch (err) {

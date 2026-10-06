@@ -6,6 +6,12 @@ interface UpdateButtonProps {
   isLoading: boolean;
   cooldownActive: boolean;
   formattedCooldown: string;
+  /** Defaults to "Update Dashboard". */
+  label?: string;
+  /** Defaults to "Updating...". */
+  loadingLabel?: string;
+  /** Tooltip while idle; defaults to "Refresh dashboard data". */
+  title?: string;
 }
 
 /** The main CTA for triggering a dashboard refresh — pulses on first load, shows a cooldown timer once used. */
@@ -14,6 +20,9 @@ export const UpdateButton: React.FC<UpdateButtonProps> = ({
   isLoading,
   cooldownActive,
   formattedCooldown,
+  label = "Update Dashboard",
+  loadingLabel = "Updating...",
+  title = "Refresh dashboard data",
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -33,7 +42,7 @@ export const UpdateButton: React.FC<UpdateButtonProps> = ({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       disabled={isLoading || cooldownActive}
-      title={cooldownActive ? `Cooldown active. Next update in ${formattedCooldown}` : "Refresh dashboard data"}
+      title={cooldownActive ? `Cooldown active. Next update in ${formattedCooldown}` : title}
     >
       <div className="btn-content">
         {cooldownActive ? (
@@ -44,7 +53,7 @@ export const UpdateButton: React.FC<UpdateButtonProps> = ({
         ) : (
           <>
             <RefreshCw size={18} className={`btn-icon ${isLoading ? "spinning" : ""}`} />
-            <span>{isLoading ? "Updating..." : "Update Dashboard"}</span>
+            <span>{isLoading ? loadingLabel : label}</span>
           </>
         )}
       </div>

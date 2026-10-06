@@ -20,4 +20,6 @@ export const loginSchema = z.object({
 
 export const updateSchema = z.object({
   usn,
+  /** Which data a manual refresh re-fetches; defaults to the current semester. */
+  scope: z.enum(["current", "exam_history"]).optional(),
 });

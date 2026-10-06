@@ -2,6 +2,7 @@
 
 import { History } from "lucide-react";
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
+import { UpdateButton } from "@/components/dashboard/UpdateButton";
 import type { ExamHistoryEntry } from "@/lib/studentDetails";
 
 interface HistorySectionProps {
@@ -10,6 +11,10 @@ interface HistorySectionProps {
   setSelectedHistoryIdx: (idx: number) => void;
   GRADE_COLORS: Record<string, string>;
   isLateralEntry?: boolean;
+  onRefresh: () => void;
+  isRefreshing: boolean;
+  refreshCooldownActive: boolean;
+  refreshCooldownLabel: string;
 }
 
 export default function HistorySection({
@@ -18,11 +23,31 @@ export default function HistorySection({
   setSelectedHistoryIdx,
   GRADE_COLORS,
   isLateralEntry = false,
+  onRefresh,
+  isRefreshing,
+  refreshCooldownActive,
+  refreshCooldownLabel,
 }: HistorySectionProps) {
+  const refreshButton = (
+    <UpdateButton
+      onClick={onRefresh}
+      isLoading={isRefreshing}
+      cooldownActive={refreshCooldownActive}
+      formattedCooldown={refreshCooldownLabel}
+      label="Refresh results"
+      loadingLabel="Refreshing..."
+      title="Fetch your latest exam results from the portal"
+    />
+  );
+
   if (examHistory.length === 0) {
     return (
       <div className="tab-content">
-        <DashboardHeader sectionTitle="Exam History" sectionSubtitle="Complete record of your academic performance" />
+        <DashboardHeader
+        sectionTitle="Exam History"
+        sectionSubtitle="Complete record of your academic performance"
+        actions={refreshButton}
+      />
         <div className="empty-history">
           <History size={48} color="var(--text-muted)" />
           <h3>No exam history available</h3>
@@ -35,7 +60,11 @@ export default function HistorySection({
 
   return (
     <div className="tab-content">
-      <DashboardHeader sectionTitle="Exam History" sectionSubtitle="Complete record of your academic performance" />
+      <DashboardHeader
+        sectionTitle="Exam History"
+        sectionSubtitle="Complete record of your academic performance"
+        actions={refreshButton}
+      />
 
       <div className="history-tab-container">
         <div className="mobile-history-selector">

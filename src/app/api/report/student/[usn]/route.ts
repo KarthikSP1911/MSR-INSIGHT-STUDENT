@@ -7,7 +7,11 @@ import { getCurrentUsn } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { students } from "@/lib/db/schema";
 import { enqueueScrapeJob } from "@/lib/scrapeJobs";
+import { runJobAfterResponse } from "@/lib/scraper/scheduleJob";
 import { hasScrapedData } from "@/lib/studentDetails";
+
+/** The scrape runs inside this route's budget via `after()`; 60s is the Vercel Hobby maximum. */
+export const maxDuration = 60;
 
 /**
  * Ported from report.controller.js `getStudentDashboardReport()`: serves
@@ -52,15 +56,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ usn
       scope: "full",
     });
 
-    // Fire-and-forget the scrape (same pattern as login + update routes).
-    const { headers } = await import("next/headers");
-    const host = (await headers()).get("host") ?? "localhost:3000";
-    const protocol = host.startsWith("localhost") ? "http" : "https";
-    fetch(`${protocol}://${host}/api/scrape-jobs/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId }),
-    }).catch((e) => console.error("[api/report/student] fire-and-forget scrape trigger failed:", e));
+    runJobAfterResponse(db, jobId);
 
     return NextResponse.json({ success: true, source: "scraper", data: { jobId } }, { status: 202 });
   } catch (err) {

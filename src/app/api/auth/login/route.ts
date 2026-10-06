@@ -7,15 +7,24 @@ import { setSessionCookie } from "@/lib/auth/cookies";
 import { signStudentToken } from "@/lib/auth/jwt";
 import { getDb } from "@/lib/db/client";
 import { students } from "@/lib/db/schema";
-import { enqueueScrapeJob } from "@/lib/scrapeJobs";
+import { FAILED_SYNC_BACKOFF_MS, scopeForStaleness } from "@/lib/scrapePolicy";
+import { enqueueScrapeJob, hasRecentFailedJob } from "@/lib/scrapeJobs";
+import { runJobAfterResponse } from "@/lib/scraper/scheduleJob";
 import { hasScrapedData } from "@/lib/studentDetails";
 import { loginSchema } from "@/lib/validation/auth";
+
+/** The background scrape runs inside this route's budget via `after()`; 60s is the Vercel Hobby maximum. */
+export const maxDuration = 60;
 
 /**
  * Student login: USN + DOB, with MSR-Insight's secondary-auth/PIN capture
  * flow preserved (it's what authorizes the portal scrape). Ported from
  * auth.service.js `login()` / auth.controller.js `login()`, with the
  * synchronous scrape replaced by enqueue-and-poll (see /api/scrape-jobs/[id]).
+ *
+ * A returning student with a saved PIN signs in immediately. If their data is stale
+ * (see scrapePolicy.ts) the stale part is refreshed in the background and the dashboard
+ * keeps showing the cached data until the job finishes.
  */
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
@@ -42,22 +51,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const hasStoredPin = Boolean(existing?.encryptedPin);
+    const savedPin = existing?.encryptedPin ? decryptText(existing.encryptedPin) : "";
     const hasNewPinProvided = Boolean(last4Digits);
 
-    // Instant login: cached scrape + stored PIN + no forced re-verification.
-    if (existing && hasScrapedData(existing.details) && hasStoredPin && !forceResync && !hasNewPinProvided) {
+    // Returning student: cached scrape + a saved PIN that still decrypts + no forced re-verification.
+    if (existing && hasScrapedData(existing.details) && savedPin && existing.authType && !forceResync && !hasNewPinProvided) {
       const token = await signStudentToken(usn);
       await setSessionCookie(token, Boolean(rememberMe));
+
+      let jobId: string | null = null;
+      const scope = scopeForStaleness(existing);
+      // After a recent failure (e.g. the saved PIN was changed on the portal) stop retrying on every login.
+      if (scope && !(await hasRecentFailedJob(db, usn, FAILED_SYNC_BACKOFF_MS))) {
+        try {
+          jobId = await enqueueScrapeJob(db, {
+            usn,
+            dob,
+            authType: normalizeAuthType(existing.authType),
+            plainPin: savedPin,
+            trigger: "login",
+            scope,
+          });
+          runJobAfterResponse(db, jobId);
+        } catch (err) {
+          // The session is already valid; a failed refresh must not turn into a failed login.
+          console.error(`[api/auth/login] could not queue refresh for USN ${usn}:`, err);
+          jobId = null;
+        }
+      }
+
       return NextResponse.json({
         success: true,
-        message: "Login successful",
-        data: { usn, jobId: null },
+        message: jobId ? "Login successful — refreshing your data" : "Login successful",
+        data: { usn, jobId },
       });
     }
 
     const targetAuthType = authType || existing?.authType || undefined;
-    const targetPin = last4Digits || (existing?.encryptedPin ? decryptText(existing.encryptedPin) : "");
+    const targetPin = last4Digits || savedPin;
 
     if (!targetPin || !targetAuthType) {
       return NextResponse.json({
@@ -74,6 +105,8 @@ export async function POST(request: NextRequest) {
       await db.update(students).set({ dob }).where(eq(students.usn, usn));
     }
 
+    // A student who deliberately re-verifies gets at least a current-semester refresh.
+    const scope = existing ? (scopeForStaleness(existing) ?? "current") : "full";
     // Canonicalize here rather than trust the stored value as-is.
     const jobId = await enqueueScrapeJob(db, {
       usn,
@@ -81,21 +114,12 @@ export async function POST(request: NextRequest) {
       authType: normalizeAuthType(targetAuthType),
       plainPin: targetPin,
       trigger: "login",
-      scope: hasScrapedData(existing?.details) ? "current" : "full",
+      scope,
     });
 
     const sessionToken = await signStudentToken(usn);
     await setSessionCookie(sessionToken, Boolean(rememberMe));
-
-    // Fire-and-forget: trigger the scrape in-process so the login response returns
-    // immediately while the scrape runs in the background via Vercel's extended
-    // execution (maxDuration=60 on the run route). No await — response goes back now.
-    const runUrl = new URL("/api/scrape-jobs/run", request.url);
-    fetch(runUrl.toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId }),
-    }).catch((e) => console.error("[api/auth/login] fire-and-forget scrape trigger failed:", e));
+    runJobAfterResponse(db, jobId);
 
     return NextResponse.json({
       success: true,

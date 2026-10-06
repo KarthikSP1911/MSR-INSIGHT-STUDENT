@@ -73,6 +73,7 @@ export default function StudentDashboard() {
   };
 
   const [nextAllowedAt, setNextAllowedAt] = useState<string | null>(null);
+  const [examNextAllowedAt, setExamNextAllowedAt] = useState<string | null>(null);
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
   const [predictedGrades, setPredictedGrades] = useState<Record<string, string>>({});
   const [simulatedCredits, setSimulatedCredits] = useState<Record<string, number>>({});
@@ -312,6 +313,16 @@ export default function StudentDashboard() {
 
   const { formatTime, isCooldownActive } = useCooldown(nextAllowedAt ?? derivedNextAllowedAt);
 
+  // Exam results refresh on their own cooldown, measured from when they were last scraped.
+  const derivedExamNextAllowedAt = useMemo(() => {
+    if (!student?.examHistoryUpdatedAt) return null;
+    return new Date(new Date(student.examHistoryUpdatedAt).getTime() + 1 * 60 * 1000).toISOString();
+  }, [student]);
+
+  const { formatTime: examFormatTime, isCooldownActive: isExamCooldownActive } = useCooldown(
+    examNextAllowedAt ?? derivedExamNextAllowedAt,
+  );
+
   // Simulator defaults (grade "O", 4 credits per subject), merged with any values the
   // user has already picked — computed at render instead of initialized via effect so
   // it never needs to distinguish "not yet initialized" from "user cleared it".
@@ -361,21 +372,26 @@ export default function StudentDashboard() {
     router.push("/");
   };
 
-  const handleUpdate = async () => {
-    if (isCooldownActive || updateStatus === "loading") return;
+  // `current` re-fetches attendance and CIE marks, `exam_history` re-fetches exam results.
+  const requestSync = async (scope: "current" | "exam_history") => {
+    const cooldownActive = scope === "exam_history" ? isExamCooldownActive : isCooldownActive;
+    if (cooldownActive || updateStatus === "loading") return;
     setUpdateStatus("loading");
     setUpdateError(null);
     try {
       const response = await fetch("/api/report/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usn: stdUsn }),
+        body: JSON.stringify({ usn: stdUsn, scope }),
       });
       const body = await response.json();
 
       if (response.status === 429) {
         setUpdateStatus(null);
-        if (body.nextAllowedAt) setNextAllowedAt(body.nextAllowedAt);
+        if (body.nextAllowedAt) {
+          if (scope === "exam_history") setExamNextAllowedAt(body.nextAllowedAt);
+          else setNextAllowedAt(body.nextAllowedAt);
+        }
         return;
       }
       if (response.status === 401 && body.requiresRelogin) {
@@ -400,6 +416,9 @@ export default function StudentDashboard() {
       setTimeout(() => setUpdateStatus(null), 3000);
     }
   };
+
+  const handleUpdate = () => requestSync("current");
+  const handleRefreshResults = () => requestSync("exam_history");
 
   if (loading || !student) return <LoadingScreen />;
 
@@ -602,6 +621,10 @@ export default function StudentDashboard() {
                   setSelectedHistoryIdx={setSelectedHistoryIdx}
                   GRADE_COLORS={GRADE_COLORS}
                   isLateralEntry={isLateralEntry}
+                  onRefresh={handleRefreshResults}
+                  isRefreshing={updateStatus === "loading"}
+                  refreshCooldownActive={isExamCooldownActive}
+                  refreshCooldownLabel={examFormatTime}
                 />
               )}
               {activeTab === "notes" && (
