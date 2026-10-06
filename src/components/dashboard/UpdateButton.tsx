@@ -48,7 +48,10 @@ export const UpdateButton: React.FC<UpdateButtonProps> = ({
         {cooldownActive ? (
           <>
             <Clock size={18} className="btn-icon" />
-            <span>Next update in {formattedCooldown}</span>
+            <span>
+              <span className="cooldown-prefix">Next update in </span>
+              {formattedCooldown}
+            </span>
           </>
         ) : (
           <>

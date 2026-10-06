@@ -1589,19 +1589,6 @@
     display: contents;
 }
 
-@media (max-width: 768px) {
-    /* Same pill shape and 40px touch height as Update Dashboard, but neutral. */
-    .header-plain-btn {
-        min-height: 40px;
-        padding: 8px 18px;
-        gap: 8px;
-        border-color: var(--border-bright);
-        border-radius: 9999px;
-        font-size: 11px;
-        font-weight: 600;
-    }
-}
-
 /* Buttons sharing a section header (e.g. Update Dashboard + Install App). */
 .header-action-group {
     display: flex;
@@ -1611,16 +1598,73 @@
 }
 
 @media (max-width: 768px) {
-    /* The mobile header shrink-wraps its actions; let this group span the full row so the Install
-       button can sit against the right edge. */
+    /* Same pill shape and 40px touch height as Update Dashboard, but neutral. */
+    .header-plain-btn {
+        min-height: 40px;
+        padding: 8px 14px;
+        gap: 8px;
+        border-color: var(--border-bright);
+        border-radius: 9999px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    /* The mobile header shrink-wraps its actions; let this group span the full row. */
     .section-header-actions:has(> .header-action-group) {
         width: 100%;
     }
     .section-header-actions > .header-action-group {
         width: 100% !important;
     }
+
+    /* Every header button stays on ONE line on phones. Labels shrink with an ellipsis before anything can
+       wrap or overflow. */
+    .header-action-group {
+        flex-wrap: nowrap;
+        gap: 8px;
+    }
+    .header-action-group .header-plain-btn,
+    .header-action-group .update-dashboard-btn {
+        min-width: 0;
+    }
     .header-action-group .update-dashboard-btn {
         min-height: 40px;
+        padding: 8px 14px;
+        flex: 0 1 auto;
+    }
+    .header-action-group .btn-content {
+        min-width: 0;
+        gap: 8px;
+    }
+    .header-action-group .btn-content span,
+    .header-action-group .header-plain-btn span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    /* The clock icon already says "cooldown"; dropping the prefix keeps the countdown on the line. */
+    .header-action-group .cooldown-prefix {
+        display: none;
+    }
+
+    /* Install App is icon-only on phones: a 40px circle pinned to the right edge of the row. */
+    .header-plain-btn.install-app-btn {
+        flex: 0 0 40px;
+        width: 40px;
+        padding: 0;
+        justify-content: center;
+    }
+    .header-plain-btn.install-app-btn span {
+        display: none;
+    }
+}
+
+@media (max-width: 360px) {
+    .header-action-group .header-plain-btn:not(.install-app-btn),
+    .header-action-group .update-dashboard-btn {
+        padding-left: 10px;
+        padding-right: 10px;
+        gap: 6px;
     }
 }
 
