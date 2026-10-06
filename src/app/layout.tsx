@@ -1,10 +1,11 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import QueryProvider from "@/providers/QueryProvider";
 import PostHogProvider from "@/providers/PostHogProvider";
+import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -21,6 +22,11 @@ export const metadata: Metadata = {
   },
 };
 
+// Colours the browser UI / installed-app title bar to match the dashboard background.
+export const viewport: Viewport = {
+  themeColor: "#0a0a0a",
+};
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
@@ -28,6 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <PostHogProvider>
           <QueryProvider>{children}</QueryProvider>
         </PostHogProvider>
+        <ServiceWorkerRegistration />
         <Analytics />
         <SpeedInsights />
       </body>
