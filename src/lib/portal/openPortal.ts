@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
 
-import { normalizeAuthType } from "@/lib/auth/authType";
-import { ID_TYPE_VALUE, PORTAL_BASE_URL, type DobSelectValues } from "@/lib/scraper/portalHttpClient";
+import { PORTAL_BASE_URL, type DobSelectValues } from "@/lib/scraper/portalHttpClient";
 
 /**
- * "Official Site" button support: signs the student's own browser in to the college portal.
+ * "Official Site" button support: skips the college portal's first login page for the student.
  *
  * A website can't hand a browser a login session for a *different* website, so instead the server
- * returns a tiny page whose only job is to submit the portal's own login form (the same fields the
- * portal's PIN step posts) from the student's browser, which then holds the portal's session cookie.
- * The PIN therefore appears in that one transient response, never in our JavaScript, URLs or stored state.
+ * returns a tiny page whose only job is to submit the portal's own first login form (USN + date of
+ * birth) from the student's browser. The portal then asks for the verification type and last 4 digits,
+ * which the student enters themselves: the portal ignores the PIN on this first step, so it is
+ * deliberately never sent. Nothing secret is involved: the page carries only the USN and date of birth.
  */
 
 /** Where the portal's login form posts to. */
@@ -20,13 +20,10 @@ export interface PortalSignInInput {
   usn: string;
   /** The portal's own option values for the date of birth (see fetchDobSelectValues). */
   dob: DobSelectValues;
-  /** Anything normalizeAuthType understands. */
-  authType: string;
-  pin: string;
 }
 
-/** The fields the portal's PIN step posts, with the username/password pair it carries along. */
-export function buildPortalSignInFields({ usn, dob, authType, pin }: PortalSignInInput): Record<string, string> {
+/** The fields of the portal's first login step. */
+export function buildPortalSignInFields({ usn, dob }: PortalSignInInput): Record<string, string> {
   return {
     option: "com_user",
     task: "loginOtp",
@@ -36,8 +33,6 @@ export function buildPortalSignInFields({ usn, dob, authType, pin }: PortalSignI
     yyyy: dob.yyyy,
     // What the portal page's own putdate() builds from the three date selects.
     passwd: `${dob.yyyy}-${dob.mm}-${dob.dd}`,
-    idType: ID_TYPE_VALUE[normalizeAuthType(authType)],
-    enteredid: pin.replace(/\D/g, ""),
     remember: "No",
   };
 }
@@ -60,7 +55,7 @@ const cspHash = (text: string) => `'sha256-${createHash("sha256").update(text).d
 /** The page can run only its own one-line submit and can only post to the portal. */
 export const PORTAL_SIGNIN_HEADERS: Record<string, string> = {
   "Content-Type": "text/html; charset=utf-8",
-  // Carries the student's PIN: never cache it, never leak our URL to the portal, never index it.
+  // Carries the student's USN and date of birth: never cache it, never leak our URL to the portal, never index it.
   "Cache-Control": "no-store, no-cache, must-revalidate, private",
   Pragma: "no-cache",
   "Referrer-Policy": "no-referrer",

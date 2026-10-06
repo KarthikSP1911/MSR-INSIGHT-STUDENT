@@ -1,7 +1,6 @@
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
-import { decryptText } from "@/lib/auth/crypto";
 import { getCurrentUsn } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { students } from "@/lib/db/schema";
@@ -19,14 +18,15 @@ const NO_STORE = { "Cache-Control": "no-store" };
 const portalLoginPage = () => NextResponse.redirect(PORTAL_BASE_URL, { status: 303, headers: NO_STORE });
 
 /**
- * "Official Site" button: opens the college portal in a new tab, already signed in as this student.
+ * "Official Site" button: opens the college portal in a new tab, past its first login page.
  *
  * POST-only on purpose. The session cookie is SameSite=Lax, so other sites can't make the browser send
  * it on a cross-site POST, and the Sec-Fetch-Site check below is defence in depth. A GET would carry the
- * cookie on a cross-site link click and could leak the PIN page to a malicious site.
+ * cookie on a cross-site link click and could hand a malicious site the student's USN and date of birth.
  *
- * Responds with a transient auto-submitting form (see src/lib/portal/openPortal.ts). If the student has
- * no saved PIN, or anything goes wrong, they land on the portal's own login page instead.
+ * Responds with a transient auto-submitting form (see src/lib/portal/openPortal.ts) that skips the portal's
+ * first login page. If the student has no date of birth on file, or anything goes wrong, they land on the
+ * portal's own login page instead. The PIN is never involved.
  */
 export async function POST(request: NextRequest) {
   const usn = await getCurrentUsn();
@@ -37,13 +37,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const [student] = await getDb().select().from(students).where(eq(students.usn, usn));
-    if (!student?.dob || !student.authType || !student.encryptedPin) return portalLoginPage();
-
-    const pin = decryptText(student.encryptedPin);
-    if (!pin) return portalLoginPage();
+    if (!student?.dob) return portalLoginPage();
 
     const dob = await fetchDobSelectValues(parseDobParts(student.dob));
-    const fields = buildPortalSignInFields({ usn, dob, authType: student.authType, pin });
+    const fields = buildPortalSignInFields({ usn, dob });
 
     return new NextResponse(buildPortalSignInPage(fields), { status: 200, headers: PORTAL_SIGNIN_HEADERS });
   } catch (err) {

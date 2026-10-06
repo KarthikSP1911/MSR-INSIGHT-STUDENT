@@ -45,7 +45,7 @@ const addStudent = (overrides: Partial<typeof students.$inferInsert> = {}) =>
   });
 
 describe("POST /api/portal/open", () => {
-  it("returns an auto-submitting sign-in page built from the student's saved details", async () => {
+  it("returns an auto-submitting page built from the student's USN and date of birth", async () => {
     await addStudent();
 
     const res = await POST(request({ "sec-fetch-site": "same-origin" }));
@@ -57,8 +57,25 @@ describe("POST /api/portal/open", () => {
     expect(html).toContain('name="username" value="1MS23IS051"');
     // The portal's own (unpadded) option values are used, exactly as its page would.
     expect(html).toContain('name="passwd" value="2004-1-5"');
-    expect(html).toContain('name="idType" value="2"');
-    expect(html).toContain(`name="enteredid" value="${PIN}"`);
+  });
+
+  it("never puts the saved PIN or verification type in the page", async () => {
+    await addStudent();
+
+    const html = await (await POST(request())).text();
+
+    expect(html).not.toContain(PIN);
+    expect(html).not.toContain("enteredid");
+    expect(html).not.toContain("idType");
+  });
+
+  it("works for students who have no saved PIN", async () => {
+    await addStudent({ encryptedPin: null, authType: null });
+
+    const res = await POST(request());
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('name="username" value="1MS23IS051"');
   });
 
   it("never caches the page and only lets it post to the portal", async () => {
@@ -89,11 +106,11 @@ describe("POST /api/portal/open", () => {
     await addStudent();
     const res = await POST(request({ "sec-fetch-site": "cross-site" }));
     expect(res.status).toBe(403);
-    expect(await res.text()).not.toContain(PIN);
+    expect(await res.text()).not.toContain("1MS23IS051");
   });
 
-  it("sends students with no saved PIN to the portal's normal login page", async () => {
-    await addStudent({ encryptedPin: null });
+  it("sends students with no date of birth on file to the portal's normal login page", async () => {
+    await addStudent({ dob: null });
 
     const res = await POST(request());
 
@@ -101,17 +118,10 @@ describe("POST /api/portal/open", () => {
     expect(res.headers.get("location")).toBe("https://parents.msrit.edu/newparents/");
   });
 
-  it("does the same when the saved PIN can no longer be decrypted, and never leaks it in headers", async () => {
-    await addStudent({ encryptedPin: "00:00:00" });
+  it("does the same for an unknown student, and when the stored date is unusable", async () => {
+    expect((await POST(request())).status).toBe(303);
 
-    const res = await POST(request());
-
-    expect(res.status).toBe(303);
-    expect([...res.headers.values()].join("\n")).not.toContain(PIN);
-  });
-
-  it("does the same for an unknown student", async () => {
-    const res = await POST(request());
-    expect(res.status).toBe(303);
+    await addStudent({ dob: "not a date" });
+    expect((await POST(request())).status).toBe(303);
   });
 });

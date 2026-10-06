@@ -12,12 +12,10 @@ import {
 const input = {
   usn: "1MS23IS051",
   dob: { dd: "19", mm: "11", yyyy: "2004" },
-  authType: "Mother's Mobile",
-  pin: "1234",
 };
 
 describe("buildPortalSignInFields", () => {
-  it("builds what the portal's PIN step posts", () => {
+  it("builds the portal's first login step: USN and date of birth only", () => {
     expect(buildPortalSignInFields(input)).toEqual({
       option: "com_user",
       task: "loginOtp",
@@ -26,25 +24,18 @@ describe("buildPortalSignInFields", () => {
       mm: "11",
       yyyy: "2004",
       passwd: "2004-11-19",
-      idType: "2",
-      enteredid: "1234",
       remember: "No",
     });
   });
 
-  it("maps every verification method to the portal's ID type and tolerates loose spellings", () => {
-    const idType = (authType: string) => buildPortalSignInFields({ ...input, authType }).idType;
-    expect(idType("Father's Mobile")).toBe("1");
-    expect(idType("mother")).toBe("2");
-    expect(idType("ABC ID")).toBe("3");
+  it("never includes anything about the PIN or verification type", () => {
+    const names = Object.keys(buildPortalSignInFields(input));
+    expect(names).not.toContain("enteredid");
+    expect(names).not.toContain("idType");
   });
 
   it("uses the portal's own option values, which may not be zero-padded", () => {
     expect(buildPortalSignInFields({ ...input, dob: { dd: "5", mm: "1", yyyy: "2004" } }).passwd).toBe("2004-1-5");
-  });
-
-  it("keeps only digits of the PIN", () => {
-    expect(buildPortalSignInFields({ ...input, pin: " 12 34 " }).enteredid).toBe("1234");
   });
 });
 
