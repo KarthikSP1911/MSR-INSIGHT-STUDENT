@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
 import {
-  boolean,
   index,
   integer,
   jsonb,
@@ -11,13 +10,16 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import type { StudentDetails } from "@/lib/studentDetails";
+import type { ExamHistoryEntry, StudentDetails } from "@/lib/studentDetails";
 
 /**
- * A student row. `details` mirrors MSR-Insight's normalized scrape shape:
- * { usn, name, class_details, cgpa, last_updated, current_year,
- *   subjects: [{ code, name, marks, attendance, attendance_details, assessments }],
- *   exam_history: [{ semester, sgpa, credits_earned, courses }] }
+ * A student row. The scrape is stored in two independently refreshed parts, because the portal's
+ * data changes at very different rates:
+ *  - `details` (current semester): { usn, name, class_details, last_updated, current_year,
+ *    subjects: [{ code, name, marks, attendance, attendance_details, assessments }] } — attendance
+ *    and CIE marks change daily, refreshed at most every 24h on login (see scrapePolicy.ts).
+ *  - `examHistory` + `cgpa` (stamped by `examHistoryUpdatedAt`): results change once per exam
+ *    cycle, so they are fetched on first login, on demand, and when older than 7 days.
  * The portal's Placement section is deliberately never scraped, parsed, or stored —
  * see portalScraper.ts/htmlParser.ts — so no `placement` key exists here.
  */
@@ -31,6 +33,9 @@ export const students = pgTable("students", {
   authType: text("auth_type"), // "Father's Mobile" | "Mother's Mobile" | "ABC ID"
   encryptedPin: text("encrypted_pin"), // AES-256-GCM "iv:authTag:cipher" hex
   details: jsonb("details").$type<StudentDetails>().notNull().default({}),
+  examHistory: jsonb("exam_history").$type<ExamHistoryEntry[]>().notNull().default([]),
+  cgpa: text("cgpa"),
+  examHistoryUpdatedAt: timestamp("exam_history_updated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -49,13 +54,12 @@ export const scrapeJobStatuses = ["pending", "running", "success", "failed"] as 
 export type ScrapeJobStatus = (typeof scrapeJobStatuses)[number];
 
 /**
- * `recurring` fetches the dashboard + per-course attendance + CIE pages, skipping only
- * exam-history (the one thing that genuinely doesn't change between logins — it's only
- * updated once per exam cycle, unlike CIE marks which faculty post throughout the semester),
- * then merges the previous scrape's exam history/CGPA back in — see scrapeAndSync.ts. `full`
- * fetches everything, same as the scraper's original behavior.
+ * What a job fetches and writes:
+ *  - `current`: dashboard + per-course attendance + CIE pages -> `students.details`.
+ *  - `exam_history`: only the exam-results page -> `students.examHistory` / `cgpa`.
+ *  - `full`: both (first login). Each scope writes only its own columns, so there is nothing to merge.
  */
-export const scrapeJobScopes = ["recurring", "full"] as const;
+export const scrapeJobScopes = ["current", "exam_history", "full"] as const;
 export type ScrapeJobScope = (typeof scrapeJobScopes)[number];
 
 /**

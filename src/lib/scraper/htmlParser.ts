@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import type { CheerioAPI } from "cheerio";
 
-import type { StudentDetails } from "@/lib/studentDetails";
+import type { ExamHistoryEntry, StudentDetails } from "@/lib/studentDetails";
 import { normalizeStudentRecord, type RawScrapedRecord } from "./dataNormalizer";
 import type { ScrapedData } from "./portalScraper";
 
@@ -99,7 +99,8 @@ function extractChartDataJsonArray(html: string | undefined): string | null {
   return null;
 }
 
-export function parseAndProcessData(scrapedData: ScrapedData): StudentDetails {
+/** Parses the dashboard + per-course attendance/CIE pages into the current-semester `details` record. */
+export function parseCurrentSemester(scrapedData: ScrapedData): StudentDetails {
   const $dash = cheerio.load(scrapedData.dashboard);
   const name = $dash("h3").first().text().trim() || "Unknown";
   const usn = $dash("h2").first().text().trim() || "Unknown";
@@ -210,13 +211,31 @@ export function parseAndProcessData(scrapedData: ScrapedData): StudentDetails {
     cie_details: { tests: parseCieHtml(row.code).tests },
   }));
 
-  const $exam = cheerio.load(scrapedData.exams || "");
+  const studentRecord: RawScrapedRecord = {
+    name,
+    usn,
+    class_details: classInfo,
+    last_updated: new Date().toISOString(),
+    current_semester: currentSemesterData,
+  };
+
+  return normalizeStudentRecord(studentRecord);
+}
+
+export interface ParsedExamHistory {
+  examHistory: ExamHistoryEntry[];
+  cgpa: string;
+}
+
+/** Parses the portal's exam-results page into per-semester results plus the overall CGPA. */
+export function parseExamHistory(examsHtml: string | undefined): ParsedExamHistory {
+  const $exam = cheerio.load(examsHtml || "");
   const cgpaP = $exam("p")
     .filter((_, el) => /\d+\.\d+/.test($exam(el).text()))
     .first();
-  const finalCgpa = cgpaP.length ? cgpaP.text().trim() : "N/A";
+  const cgpa = cgpaP.length ? cgpaP.text().trim() : "N/A";
 
-  const semesterHistory = $exam("table.res-table")
+  const examHistory: ExamHistoryEntry[] = $exam("table.res-table")
     .map((_, table) => {
       const cap = $exam(table).find("caption").text().replace(/\s+/g, " ").trim();
       const semName = cap.split("Credits")[0].trim();
@@ -249,15 +268,5 @@ export function parseAndProcessData(scrapedData: ScrapedData): StudentDetails {
     })
     .get();
 
-  const studentRecord: RawScrapedRecord = {
-    name,
-    usn,
-    class_details: classInfo,
-    cgpa: finalCgpa,
-    last_updated: new Date().toISOString(),
-    current_semester: currentSemesterData,
-    exam_history: semesterHistory,
-  };
-
-  return normalizeStudentRecord(studentRecord);
+  return { examHistory, cgpa };
 }

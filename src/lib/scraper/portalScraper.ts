@@ -1,7 +1,10 @@
 import axios from "axios";
+import * as cheerio from "cheerio";
 import https from "https";
 
+import type { ScrapeJobScope } from "@/lib/db/schema";
 import { mapWithConcurrency } from "./concurrency";
+import { extractCourseRowsFromDashboard, type CourseRow } from "./htmlParser";
 import { loginToPortal } from "./portalHttpClient";
 
 /**
@@ -45,6 +48,40 @@ const resolveParentsUrl = (href: string | undefined): string => {
   if (h.startsWith("/")) return `https://parents.msrit.edu${h}`;
   return `https://parents.msrit.edu/newparents/${h.replace(/^\.\//, "")}`;
 };
+
+const EXAMS_URL = "https://parents.msrit.edu/newparents/index.php?option=com_history&task=getResult";
+
+export interface FetchTarget {
+  courseCode: string;
+  type: "attendance" | "cie" | "exams";
+}
+
+/**
+ * The portal pages a scope needs, keyed by URL (one page can serve more than one target).
+ *  - `current`: each course's attendance and CIE page. CIE marks are posted throughout the semester,
+ *    so they are always fetched with attendance.
+ *  - `exam_history`: just the results page, which only changes once per exam cycle.
+ *  - `full`: both.
+ */
+export function planFetchTargets(courseRows: CourseRow[], scope: ScrapeJobScope): Map<string, FetchTarget[]> {
+  const urlToTargets = new Map<string, FetchTarget[]>();
+  const pushTarget = (href: string, courseCode: string, type: FetchTarget["type"]) => {
+    const url = resolveParentsUrl(href);
+    if (!url) return;
+    if (!urlToTargets.has(url)) urlToTargets.set(url, []);
+    urlToTargets.get(url)!.push({ courseCode, type });
+  };
+
+  if (scope !== "exam_history") {
+    for (const row of courseRows) {
+      if (row.attLink) pushTarget(row.attLink, row.code, "attendance");
+      if (row.cieLink) pushTarget(row.cieLink, row.code, "cie");
+    }
+  }
+  if (scope !== "current") pushTarget(EXAMS_URL, "EXAMS", "exams");
+
+  return urlToTargets;
+}
 
 /** Max simultaneous HTTP requests against the portal for attendance/CIE/exam pages. */
 const FETCH_CONCURRENCY = 6;
@@ -91,7 +128,7 @@ async function fetchWithBackoff(instance: ReturnType<typeof axios.create>, url: 
 async function buildResultFromDashboard(
   dashboardHtml: string,
   cookieString: string,
-  scope: "recurring" | "full",
+  scope: ScrapeJobScope,
   requestCountSoFar: number,
   loginMs: number,
   pinMs: number,
@@ -100,32 +137,8 @@ async function buildResultFromDashboard(
   if (onProgress) await onProgress("Parsing dashboard data...");
   const scrapedData: ScrapedData = { dashboard: dashboardHtml, attendance: {}, cie: {} };
 
-  const cheerio = await import("cheerio");
-  const { extractCourseRowsFromDashboard } = await import("./htmlParser");
-  const $dash = cheerio.load(dashboardHtml);
-  const courseRows = extractCourseRowsFromDashboard($dash);
-
-  const urlToTargets = new Map<string, { courseCode: string; type: string }[]>();
-  const pushTarget = (href: string, courseCode: string, type: string) => {
-    const url = resolveParentsUrl(href);
-    if (!url) return;
-    if (!urlToTargets.has(url)) urlToTargets.set(url, []);
-    urlToTargets.get(url)!.push({ courseCode, type });
-  };
-  for (const row of courseRows) {
-    if (row.attLink) pushTarget(row.attLink, row.code, "attendance");
-    // CIE marks change throughout the semester (faculty post new test results), so fetch it
-    // every time regardless of scope — unlike exam history below, it's not safe to treat as
-    // "doesn't change between logins".
-    if (row.cieLink) pushTarget(row.cieLink, row.code, "cie");
-  }
-
-  if (scope === "full") {
-    // Exam history only updates once per exam cycle, so a `recurring`-scope job skips it and
-    // the caller (scrapeAndSync.ts) merges the prior scrape's exam history/CGPA back in.
-    const examsUrl = "https://parents.msrit.edu/newparents/index.php?option=com_history&task=getResult";
-    urlToTargets.set(examsUrl, [{ courseCode: "EXAMS", type: "exams" }]);
-  }
+  const courseRows = extractCourseRowsFromDashboard(cheerio.load(dashboardHtml));
+  const urlToTargets = planFetchTargets(courseRows, scope);
 
   // Placement pages (com_placement: eligibility/status/results/profile) are deliberately
   // never added to urlToTargets — the placement section is out of scope for this scraper
@@ -140,7 +153,7 @@ async function buildResultFromDashboard(
     httpsAgent: keepAliveAgent,
   });
 
-  if (onProgress) await onProgress("Downloading attendance and CIE marks...");
+  if (onProgress) await onProgress(scope === "exam_history" ? "Downloading exam results..." : "Downloading attendance and CIE marks...");
 
   const uniqueUrls = [...urlToTargets.keys()];
   const fetchDurationsMs: number[] = [];
@@ -203,8 +216,8 @@ export const getCompleteStudentData = async (
   year: string,
   authType: string,
   pin: string,
-  /** `recurring` skips only the exam-history fetch (caller merges it back in from the prior scrape); CIE is always fetched — see scrapeAndSync.ts. */
-  scope: "recurring" | "full" = "full",
+  /** Which parts to fetch: `current` (attendance + CIE), `exam_history`, or `full` (both). */
+  scope: ScrapeJobScope = "full",
   onProgress?: (msg: string) => Promise<void>,
 ): Promise<CompleteStudentData> => {
   const session = await loginToPortal({ usn, day, month, year, authType, pin }, { onProgress });

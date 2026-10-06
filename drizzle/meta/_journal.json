@@ -64,6 +64,13 @@
       "when": 1791300324602,
       "tag": "0008_drop_browserless_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791300493215,
+      "tag": "0009_split_exam_history",
+      "breakpoints": true
     }
   ]
 }

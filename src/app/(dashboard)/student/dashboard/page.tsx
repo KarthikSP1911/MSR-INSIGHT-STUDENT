@@ -195,12 +195,12 @@ export default function StudentDashboard() {
 
   const detailsBlob = useMemo(() => student?.details || {}, [student]);
   const currentSem = useMemo(() => detailsBlob.subjects || detailsBlob.current_semester || [], [detailsBlob]);
-  const examHistory = useMemo(() => detailsBlob.exam_history || [], [detailsBlob]);
+  const examHistory = useMemo(() => student?.examHistory ?? [], [student]);
 
   const currentCgpa = useMemo(() => {
-    const val = (detailsBlob.cgpa ?? "").toString().trim();
+    const val = (student?.cgpa ?? "").trim();
     return val || null;
-  }, [detailsBlob]);
+  }, [student]);
 
   const totalCredits = useMemo(
     () => examHistory.reduce((acc, sem) => acc + (parseInt(sem.credits_earned) || 0), 0),

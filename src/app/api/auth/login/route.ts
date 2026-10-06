@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
       authType: normalizeAuthType(targetAuthType),
       plainPin: targetPin,
       trigger: "login",
-      scope: hasScrapedData(existing?.details) ? "recurring" : "full",
+      scope: hasScrapedData(existing?.details) ? "current" : "full",
     });
 
     const sessionToken = await signStudentToken(usn);

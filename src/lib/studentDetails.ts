@@ -42,12 +42,10 @@ export interface StudentDetails {
   usn?: string;
   name?: string;
   class_details?: string;
-  cgpa?: string | number;
   last_updated?: string;
   current_year?: number;
   subjects?: Subject[];
   current_semester?: Subject[]; // legacy alias some scrapes produced
-  exam_history?: ExamHistoryEntry[];
 }
 
 export function hasScrapedData(details: StudentDetails | null | undefined): boolean {

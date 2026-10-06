@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
       authType: targetAuthType,
       plainPin: targetPin,
       trigger: "manual_update",
-      scope: "full",
+      scope: "current",
     });
 
     // Fire-and-forget: trigger the scrape without blocking the response.
