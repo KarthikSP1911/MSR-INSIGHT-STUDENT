@@ -2,6 +2,7 @@
 
 import { History } from "lucide-react";
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
+import CustomSelect from "@/components/dashboard/CustomSelect";
 import { UpdateButton } from "@/components/dashboard/UpdateButton";
 import type { ExamHistoryEntry } from "@/lib/studentDetails";
 
@@ -68,39 +69,19 @@ export default function HistorySection({
 
       <div className="history-tab-container">
         <div className="mobile-history-selector">
-          <label
-            htmlFor="sem-select"
-            className="stat-label"
-            style={{ paddingLeft: "4px", fontSize: "11px", textTransform: "uppercase", marginBottom: "8px", display: "block" }}
-          >
-            Select Semester
-          </label>
-          <select
-            id="sem-select"
-            className="sem-history-select"
-            value={selectedHistoryIdx}
-            onChange={(e) => setSelectedHistoryIdx(parseInt(e.target.value))}
-            style={{
-              width: "100%",
-              padding: "12px",
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--border-subtle)",
-              borderRadius: "8px",
-              color: "var(--text-primary)",
-              fontSize: "14px",
-              outline: "none",
-              appearance: "none",
-            }}
-          >
-            {reversedHistory.map((sem, idx) => {
+          <span className="stat-label mobile-history-label">Select Semester</span>
+          <CustomSelect
+            className="history-sem-select"
+            menuClassName="history-sem-menu"
+            maxMenuHeight={320}
+            ariaLabel="Select semester"
+            value={String(selectedHistoryIdx)}
+            onChange={(v) => setSelectedHistoryIdx(parseInt(v, 10))}
+            options={reversedHistory.map((sem, idx) => {
               const semNum = isLateralEntry ? examHistory.length - idx + 2 : examHistory.length - idx;
-              return (
-                <option key={idx} value={idx}>
-                  Semester {semNum} (SGPA: {sem.sgpa})
-                </option>
-              );
+              return { value: String(idx), label: `Semester ${semNum} (SGPA: ${sem.sgpa})` };
             })}
-          </select>
+          />
         </div>
 
         <div className="history-grid">

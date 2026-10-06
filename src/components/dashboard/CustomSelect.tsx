@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
+
+import { computeMenuPlacement, type MenuPlacement } from "@/lib/ui/menuPlacement";
 
 interface CustomSelectOption {
   value: string;
@@ -15,13 +17,19 @@ interface CustomSelectProps {
   options: CustomSelectOption[];
   onChange: (value: string) => void;
   className?: string;
+  /** Extra class on the portaled menu (it lives in document.body, so `className` can't style it). */
+  menuClassName?: string;
+  /** Tallest the menu may be before it scrolls internally. */
+  maxMenuHeight?: number;
   color?: string;
   ariaLabel?: string;
 }
 
-interface MenuRect {
-  top: number;
+interface MenuRect extends MenuPlacement {
+  /** Horizontal centre of the trigger; the menu is centred on it. */
   left: number;
+  top: number;
+  bottom: number;
   width: number;
 }
 
@@ -38,7 +46,16 @@ interface MenuRect {
 // and the unmount timer below need to agree on it.
 const CLOSE_TRANSITION_MS = 130;
 
-export default function CustomSelect({ value, options, onChange, className = "", color, ariaLabel }: CustomSelectProps) {
+export default function CustomSelect({
+  value,
+  options,
+  onChange,
+  className = "",
+  menuClassName = "",
+  maxMenuHeight,
+  color,
+  ariaLabel,
+}: CustomSelectProps) {
   const [open, setOpen] = useState(false);
   // Mounted a beat longer than `open` so the closing transition can play out before the
   // portaled menu leaves the DOM, rather than it just vanishing on click. `visible` is what
@@ -59,7 +76,20 @@ export default function CustomSelect({ value, options, onChange, className = "",
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
       if (buttonRef.current) {
         const rect = buttonRef.current.getBoundingClientRect();
-        setMenuRect({ top: rect.bottom + 6, left: rect.left + rect.width / 2, width: rect.width });
+        const placement = computeMenuPlacement({
+          triggerTop: rect.top,
+          triggerBottom: rect.bottom,
+          viewportHeight: window.innerHeight,
+          optionCount: options.length,
+          maxMenuHeight,
+        });
+        setMenuRect({
+          ...placement,
+          left: rect.left + rect.width / 2,
+          top: rect.bottom + 6,
+          bottom: window.innerHeight - rect.top + 6,
+          width: rect.width,
+        });
       }
       setMounted(true);
     } else {
@@ -71,7 +101,7 @@ export default function CustomSelect({ value, options, onChange, className = "",
     return () => {
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `mounted` intentionally excluded: including it would re-fire this on the very unmount it schedules
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `mounted` intentionally excluded: including it would re-fire this on the very unmount it schedules; options/maxMenuHeight only matter at the moment of opening
   }, [open]);
 
   useEffect(() => {
@@ -80,8 +110,20 @@ export default function CustomSelect({ value, options, onChange, className = "",
     return () => cancelAnimationFrame(frame);
   }, [mounted]);
 
+  // Once the menu is showing, bring the selected option into view and put keyboard focus on it. The menu is
+  // scrolled directly (not with scrollIntoView, which could also scroll the page and close the menu).
+  useEffect(() => {
+    if (!visible) return;
+    const menu = menuRef.current;
+    const selectedOption = menu?.querySelector<HTMLElement>(".custom-select-option.is-selected");
+    if (!menu || !selectedOption) return;
+    menu.scrollTop = selectedOption.offsetTop - (menu.clientHeight - selectedOption.offsetHeight) / 2;
+    selectedOption.focus({ preventScroll: true });
+  }, [visible]);
+
   useEffect(() => {
     if (!open) return;
+    const openedAtWidth = window.innerWidth;
     // The menu is portaled to document.body, so it's not a DOM descendant of rootRef — check
     // both, or every pointerdown on an option would register as "outside" and close the menu
     // before the option's own click handler fires.
@@ -92,24 +134,60 @@ export default function CustomSelect({ value, options, onChange, className = "",
       close();
     };
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape") {
+        close();
+        buttonRef.current?.focus();
+      }
     };
-    // Reposition would need to track every ancestor scroll container; closing is simpler
-    // and matches how native dropdowns behave when the page moves under them anyway.
-    const handleScroll = () => close();
+    // Reposition would need to track every ancestor scroll container; closing is simpler and matches how
+    // native dropdowns behave when the page moves under them. But scroll events are captured from every
+    // element, including this menu's own list: scrolling the options must NOT close the menu.
+    const handleScroll = (e: Event) => {
+      if (e.target instanceof Node && menuRef.current?.contains(e.target)) return;
+      close();
+    };
+    // Mobile browsers fire `resize` as the address bar collapses while scrolling; only a width change
+    // (rotation, window resize) invalidates the position.
+    const handleResize = () => {
+      if (window.innerWidth !== openedAtWidth) close();
+    };
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     window.addEventListener("scroll", handleScroll, true);
-    window.addEventListener("resize", handleScroll);
+    window.addEventListener("resize", handleResize);
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("scroll", handleScroll, true);
-      window.removeEventListener("resize", handleScroll);
+      window.removeEventListener("resize", handleResize);
     };
   }, [open]);
 
   const selected = options.find((o) => o.value === value);
+
+  const moveFocus = (e: ReactKeyboardEvent<HTMLUListElement>) => {
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>(".custom-select-option") ?? []);
+    if (items.length === 0) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    const target =
+      e.key === "ArrowDown" ? Math.min(current + 1, items.length - 1)
+      : e.key === "ArrowUp" ? Math.max(current - 1, 0)
+      : e.key === "Home" ? 0
+      : e.key === "End" ? items.length - 1
+      : -1;
+    if (target === -1) return;
+    e.preventDefault();
+    items[target].focus({ preventScroll: true });
+    // Keep the focused option inside the menu's own scroll area.
+    const menu = menuRef.current;
+    if (menu) {
+      const item = items[target];
+      if (item.offsetTop < menu.scrollTop) menu.scrollTop = item.offsetTop - 4;
+      else if (item.offsetTop + item.offsetHeight > menu.scrollTop + menu.clientHeight) {
+        menu.scrollTop = item.offsetTop + item.offsetHeight - menu.clientHeight + 4;
+      }
+    }
+  };
 
   return (
     <div className={`custom-select-root ${className}`} ref={rootRef}>
@@ -122,6 +200,12 @@ export default function CustomSelect({ value, options, onChange, className = "",
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
+        onKeyDown={(e) => {
+          if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
       >
         <span>{selected?.label ?? value}</span>
         <ChevronDown size={13} className="custom-select-chevron" style={{ opacity: open ? 1 : 0.6 }} />
@@ -132,9 +216,16 @@ export default function CustomSelect({ value, options, onChange, className = "",
         createPortal(
           <ul
             ref={menuRef}
-            className={`custom-select-menu ${visible ? "is-visible" : ""}`}
+            className={`custom-select-menu ${menuRect.placement === "above" ? "is-above" : ""} ${visible ? "is-visible" : ""} ${menuClassName}`}
             role="listbox"
-            style={{ top: menuRect.top, left: menuRect.left, minWidth: menuRect.width }}
+            aria-label={ariaLabel}
+            onKeyDown={moveFocus}
+            style={{
+              ...(menuRect.placement === "above" ? { bottom: menuRect.bottom } : { top: menuRect.top }),
+              left: menuRect.left,
+              minWidth: menuRect.width,
+              maxHeight: menuRect.maxHeight,
+            }}
           >
             {options.map((option) => (
               <li key={option.value} role="option" aria-selected={option.value === value}>
@@ -145,6 +236,7 @@ export default function CustomSelect({ value, options, onChange, className = "",
                   onClick={() => {
                     onChange(option.value);
                     close();
+                    buttonRef.current?.focus({ preventScroll: true });
                   }}
                 >
                   {option.label}
