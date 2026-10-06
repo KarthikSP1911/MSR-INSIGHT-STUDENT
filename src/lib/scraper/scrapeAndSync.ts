@@ -4,7 +4,7 @@ import { encryptText } from "@/lib/auth/crypto";
 import type { Db } from "@/lib/db/client";
 import { students, type ScrapeJobScope } from "@/lib/db/schema";
 import type { StudentDetails } from "@/lib/studentDetails";
-import { getCompleteStudentData, type ScrapeTimings } from "./puppeteerClient";
+import { getCompleteStudentData, type ScrapeTimings } from "./portalScraper";
 import { parseAndProcessData } from "./htmlParser";
 
 /**
@@ -58,13 +58,13 @@ export interface ScrapeAndSyncResult {
 }
 
 /**
- * Ported from puppeteerScraper.service.js `scrapeAndSyncStudent()`: scrapes
+ * Ported from MSR-Insight's `scrapeAndSyncStudent()`: scrapes
  * the portal, normalizes the result, and upserts it onto the student row —
  * including re-encrypting the PIN that was actually used, so future
  * instant-logins/updates can reuse it.
  *
- * Runs in-process inside a Vercel serverless function (via runJob.ts /
- * POST /api/scrape-jobs/run) — no standalone worker process anymore.
+ * Runs in-process inside a Vercel serverless function (via runJob.ts, scheduled
+ * with `after()` from the route that enqueued the job) — no standalone worker process.
  */
 export async function scrapeAndSyncStudent(
   db: Db,
@@ -72,8 +72,6 @@ export async function scrapeAndSyncStudent(
   dob: string,
   authType: string,
   plainPin: string,
-  /** Decrypted per-student Browserless.io token — passed through to getCompleteStudentData. */
-  browserlessToken: string,
   /** `recurring` skips only the exam-history fetch and merges it back in from the existing row; `full` re-fetches everything. */
   scope: ScrapeJobScope = "full",
   onProgress?: (msg: string) => Promise<void>,
@@ -89,7 +87,6 @@ export async function scrapeAndSyncStudent(
     year,
     authType,
     plainPin,
-    browserlessToken,
     scope,
     onProgress,
   );

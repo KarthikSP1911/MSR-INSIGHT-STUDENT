@@ -16,10 +16,6 @@ const COOLDOWN_MS = 1 * 60 * 1000;
  * details.last_updated (a plain timestamp diff, not a rate limiter), and
  * requires a stored PIN/authType or asks the client to re-login
  * (`requiresRelogin`). The synchronous scrape is replaced by enqueue+poll.
- *
- * Also checks `browserlessTokenValid` — if the token was flagged invalid by a
- * prior scrape failure, returns `requiresTokenRefresh: true` so the frontend
- * can redirect to the login form for a token re-entry.
  */
 export async function POST(request: NextRequest) {
   const sessionUsn = await getCurrentUsn();
@@ -87,39 +83,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Browserless token was flagged invalid by a prior scrape — prompt the student to re-enter it.
-    if (!student.browserlessTokenValid || !student.encryptedBrowserlessToken) {
-      return NextResponse.json(
-        {
-          success: false,
-          requiresRelogin: true,
-          requiresTokenRefresh: true,
-          message:
-            "Your Browserless API token is no longer valid. Please sign in again to provide a new token.",
-        },
-        { status: 401 },
-      );
-    }
-
-    const plainBrowserlessToken = decryptText(student.encryptedBrowserlessToken);
-    if (!plainBrowserlessToken) {
-      return NextResponse.json(
-        {
-          success: false,
-          requiresRelogin: true,
-          requiresTokenRefresh: true,
-          message: "Failed to retrieve your Browserless token. Please sign in again.",
-        },
-        { status: 401 },
-      );
-    }
-
     const jobId = await enqueueScrapeJob(db, {
       usn,
       dob: student.dob,
       authType: targetAuthType,
       plainPin: targetPin,
-      plainBrowserlessToken,
       trigger: "manual_update",
       scope: "full",
     });

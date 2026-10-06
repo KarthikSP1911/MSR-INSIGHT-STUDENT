@@ -10,28 +10,31 @@ export interface EnqueueScrapeJobInput {
   authType?: string | null;
   /** Plain-text PIN — encrypted before it ever touches the row. */
   plainPin?: string | null;
-  /** Plain-text Browserless.io token — encrypted before it ever touches the row. */
-  plainBrowserlessToken?: string | null;
   trigger: ScrapeJobTrigger;
-  /** `attendance` (cheaper — skips CIE/exam fetches, merging them back in from the prior scrape) or `full`. Defaults to `full`. */
+  /** `recurring` (cheaper — skips the exam-history fetch, merging it back in from the prior scrape) or `full`. Defaults to `full`. */
   scope?: ScrapeJobScope;
 }
 
 /** Postgres SQLSTATE for a unique-constraint violation — surfaced as `.code` by the `@neondatabase/serverless` driver. */
 const UNIQUE_VIOLATION = "23505";
+
+interface ErrorWithCode {
+  code?: unknown;
+  message?: unknown;
+  cause?: { code?: unknown; message?: unknown };
+}
+
 function isUniqueViolation(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
-  const e = err as any;
-  if (e.code === UNIQUE_VIOLATION) return true;
-  if (e.cause?.code === UNIQUE_VIOLATION) return true;
-  const msg = e.message || e.cause?.message || "";
+  const e = err as ErrorWithCode;
+  if (e.code === UNIQUE_VIOLATION || e.cause?.code === UNIQUE_VIOLATION) return true;
+  const msg = String(e.message ?? e.cause?.message ?? "");
   return msg.includes("duplicate key value violates unique constraint");
 }
 
 /**
- * Queues a scrape job to be picked up by `POST /api/scrape-jobs/run`. Both the
- * PIN and Browserless token are encrypted at rest immediately, even in this
- * transient queue table — never stored or logged in plain text.
+ * Queues a scrape job to be run by `claimAndRunJob`. The PIN is encrypted at rest immediately,
+ * even in this transient queue table — never stored or logged in plain text.
  *
  * Coalesced against `scrape_jobs_active_usn_idx` (a partial unique index on
  * `usn` where status is pending/running): if a job for this USN is already
@@ -46,7 +49,6 @@ export async function enqueueScrapeJob(db: Db, input: EnqueueScrapeJobInput): Pr
         dob: input.dob,
         authType: input.authType ?? null,
         encryptedPin: input.plainPin ? encryptText(input.plainPin) : null,
-        encryptedBrowserlessToken: input.plainBrowserlessToken ? encryptText(input.plainBrowserlessToken) : null,
         trigger: input.trigger,
         scope: input.scope ?? "full",
         status: "pending",

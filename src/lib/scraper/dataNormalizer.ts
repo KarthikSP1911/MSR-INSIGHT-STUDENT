@@ -6,7 +6,7 @@ import type {
   Subject,
 } from "@/lib/studentDetails";
 // This normalizer intentionally has no concept of a "placement" field anywhere — the
-// placement section is excluded upstream in htmlParser.ts/puppeteerClient.ts and never
+// placement section is excluded upstream in htmlParser.ts/portalScraper.ts and never
 // reaches here, so there's nothing for it to pass through.
 
 /**

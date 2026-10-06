@@ -3,7 +3,7 @@ import type { CheerioAPI } from "cheerio";
 
 import type { StudentDetails } from "@/lib/studentDetails";
 import { normalizeStudentRecord, type RawScrapedRecord } from "./dataNormalizer";
-import type { ScrapedData } from "./puppeteerClient";
+import type { ScrapedData } from "./portalScraper";
 
 /**
  * Ported near-verbatim from MSR-Insight's

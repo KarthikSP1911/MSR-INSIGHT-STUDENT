@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
+import { toSafeStudent } from "@/lib/auth/safeStudent";
 import { getCurrentUsn } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { students } from "@/lib/db/schema";
@@ -24,9 +25,7 @@ export async function GET() {
       return NextResponse.json({ success: false, message: "Student not found" }, { status: 404 });
     }
 
-    // Strip both encrypted secrets — neither should ever reach the client.
-    const { encryptedPin: _encryptedPin, encryptedBrowserlessToken: _encryptedBrowserlessToken, ...safeStudent } = student;
-    return NextResponse.json({ success: true, data: safeStudent });
+    return NextResponse.json({ success: true, data: toSafeStudent(student) });
   } catch (err) {
     console.error(`[api/auth/profile] failed for USN ${usn}:`, err);
     return NextResponse.json({ success: false, message: "Could not load profile." }, { status: 500 });

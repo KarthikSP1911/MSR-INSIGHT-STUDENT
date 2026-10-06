@@ -1,6 +1,8 @@
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
+import { decryptText } from "@/lib/auth/crypto";
+import { toSafeStudent } from "@/lib/auth/safeStudent";
 import { getCurrentUsn } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { students } from "@/lib/db/schema";
@@ -31,8 +33,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ usn
     }
 
     if (hasScrapedData(student.details)) {
-      const { encryptedPin: _encryptedPin, encryptedBrowserlessToken: _encryptedBrowserlessToken, ...safeStudent } = student;
-      return NextResponse.json({ success: true, source: "database", data: safeStudent });
+      return NextResponse.json({ success: true, source: "database", data: toSafeStudent(student) });
     }
 
     if (!student.dob || !student.authType || !student.encryptedPin) {
@@ -42,14 +43,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ usn
       );
     }
 
-    const { decryptText } = await import("@/lib/auth/crypto");
-    const plainBrowserlessToken = student.encryptedBrowserlessToken ? decryptText(student.encryptedBrowserlessToken) : null;
     const jobId = await enqueueScrapeJob(db, {
       usn,
       dob: student.dob,
       authType: student.authType,
       plainPin: decryptText(student.encryptedPin),
-      plainBrowserlessToken,
       trigger: "manual_update",
       scope: "full",
     });
