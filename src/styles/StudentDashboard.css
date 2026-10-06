@@ -1552,6 +1552,56 @@
     overflow: hidden;
 }
 
+/* Plain secondary buttons in a section header (Official Site, Install App). Deliberately quiet: no
+   glow, shadow or hover lift, unlike the Update Dashboard call-to-action. */
+.header-plain-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    box-shadow: none;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.header-plain-btn:hover {
+    background: var(--bg-surface);
+}
+
+.header-plain-btn:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.header-plain-btn svg {
+    flex-shrink: 0;
+}
+
+/* A <form> wrapping a header button must not become its own flex box. */
+.header-action-form {
+    display: contents;
+}
+
+@media (max-width: 768px) {
+    /* Same pill shape and 40px touch height as Update Dashboard, but neutral. */
+    .header-plain-btn {
+        min-height: 40px;
+        padding: 8px 18px;
+        gap: 8px;
+        border-color: var(--border-bright);
+        border-radius: 9999px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+}
+
 /* Buttons sharing a section header (e.g. Update Dashboard + Install App). */
 .header-action-group {
     display: flex;

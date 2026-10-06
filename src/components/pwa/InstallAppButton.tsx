@@ -17,7 +17,7 @@ export default function InstallAppButton() {
   if (!available) return null;
 
   return (
-    <button type="button" className="install-app-btn" onClick={() => void install()} title="Install MSR Insight on this device">
+    <button type="button" className="header-plain-btn install-app-btn" onClick={() => void install()} title="Install MSR Insight on this device">
       <Download size={16} aria-hidden="true" />
       <span>Install App</span>
     </button>

@@ -17,6 +17,7 @@ import {
 
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import { UpdateButton } from "@/components/dashboard/UpdateButton";
+import OpenPortalButton from "@/components/dashboard/OpenPortalButton";
 import InstallAppButton from "@/components/pwa/InstallAppButton";
 import type { ExamHistoryEntry, Subject } from "@/lib/studentDetails";
 
@@ -356,6 +357,7 @@ export default function PerformanceSection({
         sectionSubtitle="A detailed breakdown of your ongoing academic progress"
         actions={
           <div className="header-action-group">
+            <OpenPortalButton />
             <UpdateButton
               onClick={handleUpdate}
               isLoading={updateStatus === "loading"}

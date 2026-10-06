@@ -183,11 +183,50 @@ export function pickSelectValue($: CheerioAPI, selectId: string, target: string)
   return match.length ? (match.attr("value") ?? wanted).trim() : wanted;
 }
 
-const ID_TYPE_VALUE: Record<AuthType, string> = {
+/** Values of the portal's PIN-step "ID type" select. */
+export const ID_TYPE_VALUE: Record<AuthType, string> = {
   "Father's Mobile": "1",
   "Mother's Mobile": "2",
   "ABC ID": "3",
 };
+
+export interface DobSelectValues {
+  dd: string;
+  mm: string;
+  yyyy: string;
+}
+
+/**
+ * The option values the portal's login form uses for a date of birth (`passwd` is built from them as
+ * yyyy-mm-dd). Read from the live page so zero-padding matches exactly; falls back to padded numbers if
+ * the page can't be fetched, which matches how the portal has always rendered them.
+ */
+export async function fetchDobSelectValues(
+  input: Pick<PortalLoginInput, "day" | "month" | "year">,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = 6000,
+): Promise<DobSelectValues> {
+  const padded: DobSelectValues = {
+    dd: input.day.padStart(2, "0"),
+    mm: input.month.padStart(2, "0"),
+    yyyy: input.year,
+  };
+  try {
+    const res = await fetchImpl(PORTAL_BASE_URL, {
+      headers: { "User-Agent": USER_AGENT },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return padded;
+    const $ = cheerio.load(await res.text());
+    return {
+      dd: pickSelectValue($, "dd", input.day),
+      mm: pickSelectValue($, "mm", input.month),
+      yyyy: pickSelectValue($, "yyyy", input.year),
+    };
+  } catch {
+    return padded;
+  }
+}
 
 function findPinForm($: CheerioAPI): ReturnType<CheerioAPI> | null {
   const control = $(".digit-input, #enteredid, #id-type-select, select[name='idType']").first();
