@@ -92,6 +92,10 @@ hit with a wrong PIN on every login.
 If a function is killed before it can record a result, the job is marked failed the next time that
 student starts a sync (jobs stuck for more than 2 minutes), so one dead job can never block them.
 
+## Installable app (PWA)
+
+Nothing extra to configure: Vercel serves everything over HTTPS, which installation requires. After deploying, open the site on a phone, sign in, and within a few seconds the install prompt should appear (Android/Chrome: Install button; iPhone: Add to Home Screen steps). It will not reappear for 24 hours, or ever once the app is installed. `/sw.js` is served with `no-cache` so service worker updates are picked up on the next visit.
+
 ## Verification checklist
 
 1. Vercel app loads; `/student-login` renders.

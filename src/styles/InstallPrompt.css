@@ -1,0 +1,147 @@
+/* Daily "install the app" prompt (src/components/pwa/InstallPrompt.tsx). */
+
+.install-prompt {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1100; /* above the mobile bottom nav (1000) */
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: min(380px, calc(100vw - 32px));
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+  animation: install-prompt-in 0.25s ease-out;
+}
+
+.install-prompt-logo {
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+}
+
+.install-prompt-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.install-prompt-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.install-prompt-text {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.install-prompt-text strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.install-prompt-inline-icon {
+  display: inline-block;
+  vertical-align: -2px;
+  color: var(--accent-primary);
+}
+
+.install-prompt-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.install-prompt-primary,
+.install-prompt-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.install-prompt-primary {
+  border: 1px solid var(--accent-primary);
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.install-prompt-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.install-prompt-secondary {
+  border: 1px solid var(--border-bright);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.install-prompt-secondary:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.install-prompt-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -6px -6px 0 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.install-prompt-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.install-prompt button:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+@keyframes install-prompt-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Phones: full-width sheet sitting just above the bottom navigation bar. */
+@media (max-width: 768px) {
+  .install-prompt {
+    right: 12px;
+    left: 12px;
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .install-prompt {
+    animation: none;
+  }
+}

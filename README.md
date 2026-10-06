@@ -24,6 +24,7 @@ semester in a `details` JSONB blob, exam results in their own columns.
 - [Setup](#setup)
 - [Running it](#running-it)
 - [Available scripts](#available-scripts)
+- [Installable app (PWA)](#installable-app-pwa)
 - [Auth & retry flow](#auth--retry-flow)
 - [Known deviations from MSR-Insight](#known-deviations-from-msr-insight-deliberate-not-oversights)
 - [Deployment](#deployment)
@@ -52,6 +53,7 @@ semester in a `details` JSONB blob, exam results in their own columns.
 - **Manual refresh** with a 1-minute cooldown (`useCooldown`): "Update Dashboard" refreshes
   attendance and CIE marks, and "Refresh results" on the Exam History tab refreshes exam
   results. If the account predates PIN storage, it asks for a re-login instead of syncing blind.
+- **Installable app (PWA)**: the dashboard can be added to the home screen and opens as a standalone app. A signed-in student is offered the install **at most once every 24 hours** (Chrome/Edge/Android get an Install button; iOS gets the Share → Add to Home Screen steps; nothing is shown inside the installed app). See [Installable app](#installable-app-pwa).
 - **Birthday banner**, mobile-responsive charts/nav, and a re-login flow (`?relogin=1`) for
   accounts with no stored PIN yet.
 - An **Analytics** tab exists in code (`AnalyticsSection.tsx`) but is currently disabled in
@@ -220,6 +222,13 @@ npm run db:generate   # generate a Drizzle migration from schema.ts
 npm run db:migrate    # apply migrations to DATABASE_URL
 npm run db:studio     # Drizzle Studio (DB browser)
 ```
+
+## Installable app (PWA)
+
+- **Manifest** (`src/app/manifest.ts`): `display: standalone`, with 192px, 512px and maskable icons rendered at build time by `src/app/icons/[name]/route.tsx`.
+- **Service worker** (`public/sw.js`): only shows `public/offline.html` when a page navigation fails. It never caches API responses or dashboard pages, so student data is never stored or served stale. Registered in production only (`ServiceWorkerRegistration`), served with `no-cache` headers (`next.config.ts`).
+- **Install prompt** (`src/components/pwa/InstallPrompt.tsx`, mounted by `src/app/(dashboard)/layout.tsx` so it exists only for signed-in pages): appears about 4 seconds after the dashboard is visible (it waits for the loading splash to clear), at most once per 24 hours (`LAST_SHOWN` is stored in `localStorage` when it appears, so reloads never nag), never after the app is installed. The rules live in `src/lib/pwa/installPrompt.ts` and are unit-tested.
+- **Trying it locally**: the worker and prompt need a production build, `npm run build && npm start`, then open `http://localhost:3000` (localhost counts as a secure context). Clear the `msr-install-prompt-last-shown` key in DevTools → Application → Local Storage to see the prompt again.
 
 ## Auth & retry flow
 
