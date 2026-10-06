@@ -1,12 +1,24 @@
 import { z } from "zod";
 
-const usn = z.string().trim().min(1, "USN is required");
-const dob = z.string().trim().min(1, "Date of Birth is required");
+/**
+ * A VTU-style USN: 1 digit, 2-letter college code, 2-digit admission year, 2-3 letter branch code and a
+ * 3-digit serial, e.g. 1MS23IS051. This only rejects input that can't be a USN at all; whether the USN
+ * really exists is proven against the portal before anything is saved (see verifyPortalLogin).
+ */
+export const USN_PATTERN = /^[0-9][A-Z]{2}[0-9]{2}[A-Z]{2,3}[0-9]{3}$/;
 
-export const registerSchema = z.object({
-  usn,
-  dob,
-});
+const usn = z.string().trim().toUpperCase().regex(USN_PATTERN, "Enter a valid USN, for example 1MS23IS051");
+
+/** DD-MM-YYYY, the format the login form sends, and a date that exists on the calendar. */
+const dob = z
+  .string()
+  .trim()
+  .regex(/^\d{2}-\d{2}-\d{4}$/, "Enter a valid Date of Birth")
+  .refine((value) => {
+    const [day, month, year] = value.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  }, "Enter a valid Date of Birth");
 
 export const loginSchema = z.object({
   usn,

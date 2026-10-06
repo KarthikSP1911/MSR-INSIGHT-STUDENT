@@ -136,7 +136,6 @@ cookie; there is no bearer-token/header auth.
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | `POST` | `/api/auth/login` | — | USN+DOB login. Returns `requiresSecondaryAuth` if no saved PIN exists yet; otherwise mints a session and, when data is stale, queues a background refresh (returns its `jobId`). |
-| `POST` | `/api/auth/register` | — | Legacy/standalone registration path — not wired into the login UI. |
 | `GET` | `/api/auth/profile` | session | Current student's profile + `details`, with encrypted fields stripped. |
 | `POST` | `/api/auth/logout` | session | Clears the session cookie. |
 | `GET` | `/api/report/student/[usn]` | session (self only) | Fetch a student's report; triggers a scrape if none exists yet. |
@@ -241,11 +240,11 @@ npm run db:studio     # Drizzle Studio (DB browser)
   [Features](#features)) is refreshed in the background and the dashboard keeps showing cached
   data until the job finishes. After a failed sync, logins don't auto-sync again for 15 minutes,
   so a PIN that was changed on the portal isn't retried on every login.
-- **Wrong portal credentials**: a DOB mismatch against an already-verified account is rejected
-  synchronously (400). A wrong PIN or USN/DOB/PIN combination is only discoverable by actually
-  attempting the portal login. If that job fails and the account has no prior scraped data,
-  the dashboard redirects to `/student-login?error=<reason>` with the PIN section
-  pre-expanded.
+- **Invalid details are never stored**: the USN and date of birth are format-checked, and a first-time (or
+  PIN-change) login is proven against the portal itself *before* anything is written. A wrong USN, date of
+  birth or PIN is rejected on the spot and leaves no row in `students`; a portal outage gets its own "could
+  not reach the portal" error rather than being reported as a bad PIN. A date-of-birth mismatch against an
+  already-verified account is rejected as well. There is no public registration route.
 - **Partial scrapes never overwrite good data**: if any attendance/CIE page still fails after its
   retries, the whole job fails and the previously saved data is left untouched.
 - **Not stuck forever**: `useScrapeJobPolling` retries transient fetch failures (common on
