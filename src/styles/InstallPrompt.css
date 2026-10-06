@@ -1,3 +1,50 @@
+/* "Install App" button beside Update Dashboard (src/components/pwa/InstallAppButton.tsx).
+   Intentionally plain: no glow, shadow or hover lift. */
+.install-app-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  box-shadow: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.install-app-btn:hover {
+  background: var(--bg-surface);
+}
+
+.install-app-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.install-app-btn svg {
+  flex-shrink: 0;
+}
+
+/* Phones: same pill shape and 40px touch height as Update Dashboard, but neutral, and pushed to the
+   right edge of the row (or of the second row when the two buttons wrap). */
+@media (max-width: 768px) {
+  .install-app-btn {
+    margin-left: auto;
+    min-height: 40px;
+    padding: 8px 18px;
+    gap: 8px;
+    border: 1px solid var(--border-bright);
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+}
+
 /* Daily "install the app" prompt (src/components/pwa/InstallPrompt.tsx). */
 
 .install-prompt {

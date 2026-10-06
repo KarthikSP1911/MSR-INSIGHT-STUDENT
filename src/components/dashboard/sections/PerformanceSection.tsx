@@ -17,6 +17,7 @@ import {
 
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import { UpdateButton } from "@/components/dashboard/UpdateButton";
+import InstallAppButton from "@/components/pwa/InstallAppButton";
 import type { ExamHistoryEntry, Subject } from "@/lib/studentDetails";
 
 interface PerformanceSectionProps {
@@ -354,12 +355,15 @@ export default function PerformanceSection({
         sectionTitle="Current Semester Performance"
         sectionSubtitle="A detailed breakdown of your ongoing academic progress"
         actions={
-          <UpdateButton
-            onClick={handleUpdate}
-            isLoading={updateStatus === "loading"}
-            cooldownActive={isCooldownActive}
-            formattedCooldown={formatTime}
-          />
+          <div className="header-action-group">
+            <UpdateButton
+              onClick={handleUpdate}
+              isLoading={updateStatus === "loading"}
+              cooldownActive={isCooldownActive}
+              formattedCooldown={formatTime}
+            />
+            <InstallAppButton />
+          </div>
         }
       />
 

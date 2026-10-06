@@ -1552,6 +1552,28 @@
     overflow: hidden;
 }
 
+/* Buttons sharing a section header (e.g. Update Dashboard + Install App). */
+.header-action-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+@media (max-width: 768px) {
+    /* The mobile header shrink-wraps its actions; let this group span the full row so the Install
+       button can sit against the right edge. */
+    .section-header-actions:has(> .header-action-group) {
+        width: 100%;
+    }
+    .section-header-actions > .header-action-group {
+        width: 100% !important;
+    }
+    .header-action-group .update-dashboard-btn {
+        min-height: 40px;
+    }
+}
+
 .update-dashboard-btn:hover:not(:disabled) {
     background: var(--bg-surface);
     border-color: var(--accent-primary);

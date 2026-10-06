@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { INSTALL_PROMPT_INTERVAL_MS, isIosDevice, shouldShowInstallPrompt } from "./installPrompt";
+import { INSTALL_PROMPT_INTERVAL_MS, isInstallAvailable, isIosDevice, shouldShowInstallPrompt } from "./installPrompt";
 
 const NOW = Date.parse("2026-10-06T12:00:00.000Z");
 const base = { now: NOW, lastShownAt: null, installed: false, standalone: false };
@@ -49,5 +49,41 @@ describe("isIosDevice", () => {
 
   it("does not treat Android as iOS", () => {
     expect(isIosDevice(android, 5)).toBe(false);
+  });
+});
+
+describe("isInstallAvailable", () => {
+  const none = { standalone: false, installedFlag: false, canInstallNatively: false, supportsInstallEvent: false, declinedNatively: false, isIos: false };
+  const chromium = { ...none, supportsInstallEvent: true };
+
+  it("shows while Chromium offers the install dialog", () => {
+    expect(isInstallAvailable({ ...chromium, canInstallNatively: true })).toBe(true);
+  });
+
+  it("is hidden in Chromium when the install dialog is not offered, which means the app is already installed", () => {
+    expect(isInstallAvailable(chromium)).toBe(false);
+  });
+
+  it("stays available after the student opened the dialog and cancelled", () => {
+    expect(isInstallAvailable({ ...chromium, declinedNatively: true })).toBe(true);
+  });
+
+  it("is hidden inside the installed app, whatever else is true", () => {
+    expect(isInstallAvailable({ ...chromium, standalone: true, canInstallNatively: true })).toBe(false);
+    expect(isInstallAvailable({ ...none, standalone: true, isIos: true })).toBe(false);
+  });
+
+  it("is hidden once we recorded an install, unless the browser offers installation again", () => {
+    expect(isInstallAvailable({ ...chromium, installedFlag: true, declinedNatively: true })).toBe(false);
+    expect(isInstallAvailable({ ...chromium, installedFlag: true, canInstallNatively: true })).toBe(true);
+  });
+
+  it("always offers the how-to on iOS, which cannot report whether the app is installed", () => {
+    expect(isInstallAvailable({ ...none, isIos: true })).toBe(true);
+  });
+
+  it("has no button in browsers that cannot install web apps", () => {
+    expect(isInstallAvailable(none)).toBe(false);
+    expect(isInstallAvailable({ ...none, declinedNatively: true })).toBe(false);
   });
 });

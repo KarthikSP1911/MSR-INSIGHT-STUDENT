@@ -27,6 +27,46 @@ export function shouldShowInstallPrompt({ now, lastShownAt, installed, standalon
   return now - lastShownAt >= INSTALL_PROMPT_INTERVAL_MS;
 }
 
+export interface InstallAvailability {
+  /** This page is running inside the installed app. */
+  standalone: boolean;
+  /** We recorded an install earlier (cleared again if the browser offers installation, i.e. it was uninstalled). */
+  installedFlag: boolean;
+  /** The browser handed us a real install dialog (Chromium). */
+  canInstallNatively: boolean;
+  /** This browser can install web apps and fires `beforeinstallprompt` when the app isn't installed (Chromium). */
+  supportsInstallEvent: boolean;
+  /** The student opened the browser's install dialog and closed it without installing. */
+  declinedNatively: boolean;
+  isIos: boolean;
+}
+
+/**
+ * Whether to show the "Install App" button.
+ *
+ * - Never inside the installed app, and never once we know it is installed.
+ * - Chromium only fires `beforeinstallprompt` while the app is NOT installed, so the button is shown
+ *   exactly when that dialog is available. If the student opened it and cancelled, the button stays so
+ *   they can try again (the browser then re-offers, or the how-to card explains the menu).
+ * - iOS has no install event and Safari can't tell whether the app is already on the home screen, so the
+ *   how-to button is always available there.
+ * - Other browsers (Firefox, desktop Safari) can't install the app, so there is no button.
+ */
+export function isInstallAvailable({
+  standalone,
+  installedFlag,
+  canInstallNatively,
+  supportsInstallEvent,
+  declinedNatively,
+  isIos,
+}: InstallAvailability): boolean {
+  if (standalone) return false;
+  if (canInstallNatively) return true;
+  if (isIos) return true;
+  if (installedFlag) return false;
+  return supportsInstallEvent && declinedNatively;
+}
+
 /** iPhone, iPad and iPod, including iPadOS which reports itself as a Mac but has a touch screen. */
 export function isIosDevice(userAgent: string, maxTouchPoints: number): boolean {
   return /iPad|iPhone|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1);
