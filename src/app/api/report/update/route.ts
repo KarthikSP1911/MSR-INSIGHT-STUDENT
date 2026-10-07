@@ -6,7 +6,7 @@ import { getCurrentUsn } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { students } from "@/lib/db/schema";
 import { nextManualRefreshAt } from "@/lib/scrapePolicy";
-import { enqueueScrapeJob } from "@/lib/scrapeJobs";
+import { enqueueScrapeJob, ScrapeInProgressError } from "@/lib/scrapeJobs";
 import { runJobAfterResponse } from "@/lib/scraper/scheduleJob";
 import { updateSchema } from "@/lib/validation/auth";
 
@@ -95,11 +95,15 @@ export async function POST(request: NextRequest) {
       plainPin: targetPin,
       trigger: "manual_update",
       scope,
+      strictScope: true,
     });
     runJobAfterResponse(db, jobId);
 
     return NextResponse.json({ success: true, allowed: true, data: { jobId } });
   } catch (err) {
+    if (err instanceof ScrapeInProgressError) {
+      return NextResponse.json({ success: false, message: err.message }, { status: 409 });
+    }
     console.error(`[api/report/update] failed for USN ${usn}:`, err);
     return NextResponse.json({ success: false, message: "Update failed. Please try again." }, { status: 500 });
   }
