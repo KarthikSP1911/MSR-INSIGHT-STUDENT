@@ -266,6 +266,36 @@
   }
 }
 
+/* ── Feedback Hub button ─────────────────────────────────── */
+/* Fixed to the bottom-right so a student whose sign-in is failing can still report it. z-index sits below
+   the custom select's overlay (990) so an open dropdown still closes on an outside tap. */
+.feedback-fab {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  color: #fff;
+  box-shadow: var(--shadow-lg);
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.feedback-fab:hover {
+  transform: translateY(-2px);
+  opacity: 0.92;
+}
+
+.feedback-fab:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 3px;
+}
+
 /* ── Remember Me ─────────────────────────────────────────── */
 .remember-me-label {
   display: inline-flex;

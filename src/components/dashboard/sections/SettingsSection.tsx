@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Info, MessageSquare, HelpCircle } from "lucide-react";
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
+import { FEEDBACK_FORM_URL } from "@/lib/feedback";
 
 function CollapsibleItem({ title, icon, children }: { title: string, icon: React.ReactNode, children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -45,7 +46,7 @@ export default function SettingsSection() {
         <CollapsibleItem title="Feedback Hub" icon={<MessageSquare size={18} color="var(--accent-primary)" />}>
           <p>We&apos;d love to hear your thoughts, suggestions, and feature requests to help improve MSR Insight.</p>
           <a 
-            href="https://forms.gle/pfcYioY9Mh3ydD9v7" 
+            href={FEEDBACK_FORM_URL}
             target="_blank" 
             rel="noopener noreferrer"
             style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", marginTop: "16px", padding: "10px 16px", background: "var(--accent-primary)", color: "#fff", borderRadius: "var(--radius-sm)", textDecoration: "none", fontSize: "13px", fontWeight: 600, transition: "opacity 0.2s ease" }}

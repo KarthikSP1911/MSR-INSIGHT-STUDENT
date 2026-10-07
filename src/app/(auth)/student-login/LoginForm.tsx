@@ -4,6 +4,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
+import FeedbackButton from "@/components/feedback/FeedbackButton";
 import { readCachedProfileForSession, setRememberPreference, writeCachedProfile } from "@/lib/cache/profileCache";
 import type { Student } from "@/lib/db/schema";
 
@@ -339,6 +340,7 @@ export default function LoginForm() {
           </button>
         </form>
       </div>
+      <FeedbackButton />
     </div>
   );
 }
