@@ -126,6 +126,25 @@ most one active (`pending`/`running`) job per USN; a job stuck for more than 2 m
 next enqueue so it cannot block that student. `encryptedPin` is snapshotted into the job row at enqueue
 time and decrypted in-process.
 
+**`app_stats`** — running totals, so "how many students / jobs" never needs a table scan. Maintained only by
+database triggers (`drizzle/0011_app_stats_triggers.sql`), never by application code, and built so it cannot slow
+or fail the writes it follows (a stats error is logged and skipped; a counter row is never waited on for more
+than 250 ms):
+
+| `key` | Meaning |
+|---|---|
+| `students_total` | Rows in `students`. |
+| `students_year_<n>` | Students whose `current_year` is `n` (`0` = year not known yet). Years 0 to 4 always exist. |
+| `scrape_jobs_purged` | Jobs already deleted by the 7-day purge (or with their student). Added to **once per delete statement** with the batch size, never per job; creating a job writes nothing. |
+
+Read them through the `app_stats_summary` view, which also reports **`scrape_jobs_total`** (jobs ever created =
+purged + the jobs still stored, at most a week's worth):
+
+```sql
+select * from app_stats_summary order by key;
+select refresh_app_stats();   -- only if the student counters ever drift; recomputes them from `students`
+```
+
 Migrations live in `drizzle/` (Drizzle Kit); see [Setup](#setup) for generating/applying them.
 
 ## API reference
