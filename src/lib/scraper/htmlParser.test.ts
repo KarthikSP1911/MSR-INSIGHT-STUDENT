@@ -77,6 +77,22 @@ describe("parseExamHistory", () => {
     expect(examHistory[1].courses[0].grade).toBe("O");
   });
 
+  it.each([
+    ["a whole-number perfect score", "<p>Overall CGPA 10</p>", "SGPA: 10", "Overall CGPA 10", "10"],
+    ["a two-decimal perfect score", "<p>Overall CGPA 10.00</p>", "SGPA: 10.00", "Overall CGPA 10.00", "10.00"],
+    ["a bare number with no label", "<p>10</p>", "SGPA : 10", "10", "10"],
+  ])("keeps %s instead of falling back to N/A", (_label, cgpaHtml, sgpaText, expectedCgpa, expectedSgpa) => {
+    const html = `${cgpaHtml}<table class="res-table"><caption>Semester 1 Credits Earned : 20 ${sgpaText}</caption><tbody></tbody></table>`;
+    const { examHistory, cgpa } = parseExamHistory(html);
+
+    expect(cgpa).toBe(expectedCgpa);
+    expect(examHistory[0].sgpa).toBe(expectedSgpa);
+  });
+
+  it("does not mistake an unrelated paragraph containing a number for the CGPA", () => {
+    expect(parseExamHistory("<p>Results published 10 days ago</p>").cgpa).toBe("N/A");
+  });
+
   it("returns an empty result for a missing or empty page", () => {
     expect(parseExamHistory(undefined)).toEqual({ examHistory: [], cgpa: "N/A" });
     expect(parseExamHistory("")).toEqual({ examHistory: [], cgpa: "N/A" });

@@ -230,16 +230,22 @@ export interface ParsedExamHistory {
 /** Parses the portal's exam-results page into per-semester results plus the overall CGPA. */
 export function parseExamHistory(examsHtml: string | undefined): ParsedExamHistory {
   const $exam = cheerio.load(examsHtml || "");
-  const cgpaP = $exam("p")
-    .filter((_, el) => /\d+\.\d+/.test($exam(el).text()))
-    .first();
-  const cgpa = cgpaP.length ? cgpaP.text().trim() : "N/A";
+  // A perfect score prints as a whole number ("10"), so a decimal point can't be required. Keep the
+  // original rule (first paragraph with a decimal), then fall back to one that names the CGPA, then a lone "10".
+  const paragraphs = $exam("p");
+  const paragraphsMatching = (test: (text: string) => boolean) =>
+    paragraphs.filter((_, el) => test($exam(el).text())).first();
+  const decimal = paragraphsMatching((t) => /\d+\.\d+/.test(t));
+  const named = paragraphsMatching((t) => /CGPA/i.test(t) && /\d/.test(t));
+  const wholeTen = paragraphsMatching((t) => /^\s*10\s*$/.test(t));
+  const cgpaP = [decimal, named, wholeTen].find((p) => p.length > 0);
+  const cgpa = cgpaP ? cgpaP.text().trim() : "N/A";
 
   const examHistory: ExamHistoryEntry[] = $exam("table.res-table")
     .map((_, table) => {
       const cap = $exam(table).find("caption").text().replace(/\s+/g, " ").trim();
       const semName = cap.split("Credits")[0].trim();
-      const sgpaMatch = cap.match(/SGPA:\s*(\d+\.\d+)/);
+      const sgpaMatch = cap.match(/SGPA\s*:?\s*(\d+(?:\.\d+)?)/);
       const creditsMatch = cap.match(/Credits Earned\s*:\s*(\d+)/);
 
       const courses = $exam(table)
