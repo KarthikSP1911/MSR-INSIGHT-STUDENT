@@ -3,6 +3,8 @@ import { and, eq } from "drizzle-orm";
 import { decryptText } from "@/lib/auth/crypto";
 import type { Db } from "@/lib/db/client";
 import { scrapeJobs } from "@/lib/db/schema";
+import { classifyScrapeFailure } from "./failureKind";
+import { PortalUnavailableError } from "./portalHttpClient";
 import { scrapeAndSyncStudent } from "./scrapeAndSync";
 
 /**
@@ -14,7 +16,7 @@ export const JOB_DEADLINE_MS = 45_000;
 function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error("Syncing took too long. The portal may be slow right now — please try again in a few minutes.")),
+      () => reject(new PortalUnavailableError("Syncing took too long. The portal may be slow right now — please try again in a few minutes.")),
       ms,
     );
     promise.then(
@@ -89,7 +91,7 @@ export async function claimAndRunJob(db: Db, jobId: string): Promise<void> {
 
     await db
       .update(scrapeJobs)
-      .set({ status: "failed", finishedAt: new Date(), error: message })
+      .set({ status: "failed", finishedAt: new Date(), error: message, resultSummary: { failureKind: classifyScrapeFailure(error) } })
       .where(eq(scrapeJobs.id, job.id));
   }
 }

@@ -22,6 +22,7 @@ import NotesSection from "@/components/dashboard/sections/NotesSection";
 import SettingsSection from "@/components/dashboard/sections/SettingsSection";
 import LoadingScreen from "@/components/dashboard/LoadingScreen";
 import BirthdayBanner from "@/components/dashboard/BirthdayBanner";
+import PortalUnavailableBanner from "@/components/dashboard/PortalUnavailableBanner";
 
 import type { Student } from "@/lib/db/schema";
 import { hasScrapedData, type Subject } from "@/lib/studentDetails";
@@ -82,12 +83,14 @@ export default function StudentDashboard() {
     searchParams.get("syncJobId") ? "loading" : null,
   );
   const [updateError, setUpdateError] = useState<string | null>(null);
+  // The last sync failed because the college portal itself could not be used, not because of anything the student did.
+  const [portalUnavailable, setPortalUnavailable] = useState(false);
   const [showMobileProfileMenu, setShowMobileProfileMenu] = useState(false);
   // Captured once, lazily, from the ?syncJobId= param a fresh login redirect may carry —
   // reading it in a state initializer (rather than an effect) avoids a spurious setState-in-effect.
   const [syncJobId, setSyncJobId] = useState<string | null>(() => searchParams.get("syncJobId"));
 
-  const { status: jobStatus, progress: jobProgress, error: jobError } = useScrapeJobPolling(syncJobId);
+  const { status: jobStatus, progress: jobProgress, error: jobError, failureKind } = useScrapeJobPolling(syncJobId);
 
   // Drop ?syncJobId= from the URL once captured, so a refresh doesn't re-trigger it.
   // (router.replace isn't a setState call, so this doesn't trip set-state-in-effect.)
@@ -171,6 +174,7 @@ export default function StudentDashboard() {
       queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setUpdateStatus("success");
+      setPortalUnavailable(false);
       setSyncJobId(null);
       setTimeout(() => setUpdateStatus(null), 3000);
     } else if (jobStatus === "failed") {
@@ -189,10 +193,11 @@ export default function StudentDashboard() {
       } else {
         setUpdateStatus("error");
         setUpdateError(jobError);
+        setPortalUnavailable(failureKind === "portal_unavailable");
         setTimeout(() => setUpdateStatus(null), 4000);
       }
     }
-  }, [jobStatus, jobError, queryClient, student, router]);
+  }, [jobStatus, jobError, failureKind, queryClient, student, router]);
 
   const detailsBlob = useMemo(() => student?.details || {}, [student]);
   const currentSem = useMemo(() => detailsBlob.subjects || detailsBlob.current_semester || [], [detailsBlob]);
@@ -566,7 +571,8 @@ export default function StudentDashboard() {
       <main className="dashboard-main-content">
         <div className="content-wrapper">
           {isBirthday && <BirthdayBanner studentName={student?.name || "Student"} />}
-          {updateError && updateStatus === "error" && (
+          {portalUnavailable && <PortalUnavailableBanner lastUpdated={detailsBlob.last_updated} />}
+          {updateError && updateStatus === "error" && !portalUnavailable && (
             <div className="update-error-banner" role="alert">
               {updateError}
             </div>

@@ -6,7 +6,7 @@ import type { Db } from "@/lib/db/client";
 import { scrapeJobs, students } from "@/lib/db/schema";
 import { enqueueScrapeJob, hasRecentFailedJob, STALE_JOB_MS } from "@/lib/scrapeJobs";
 import { createTestDb } from "@/test/pgliteDb";
-import { PortalAuthError } from "./portalHttpClient";
+import { PortalAuthError, PortalUnavailableError } from "./portalHttpClient";
 import { claimAndRunJob } from "./runJob";
 import { scrapeAndSyncStudent } from "./scrapeAndSync";
 
@@ -118,7 +118,31 @@ describe("claimAndRunJob", () => {
 
     await claimAndRunJob(db, id);
 
-    expect(await jobRow(db, id)).toMatchObject({ status: "failed", error: expect.stringContaining("Invalid portal credentials") });
+    expect(await jobRow(db, id)).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("Invalid portal credentials"),
+      resultSummary: { failureKind: "credentials_rejected" },
+    });
+  });
+
+  it("marks a portal outage so the dashboard can show its saved data instead of an error", async () => {
+    const db = await setup();
+    scrape.mockRejectedValue(new PortalUnavailableError("The portal responded with HTTP 503"));
+    const id = await enqueue(db);
+
+    await claimAndRunJob(db, id);
+
+    expect(await jobRow(db, id)).toMatchObject({ status: "failed", resultSummary: { failureKind: "portal_unavailable" } });
+  });
+
+  it("marks any other failure as 'other'", async () => {
+    const db = await setup();
+    scrape.mockRejectedValue(new Error("boom"));
+    const id = await enqueue(db);
+
+    await claimAndRunJob(db, id);
+
+    expect(await jobRow(db, id)).toMatchObject({ status: "failed", resultSummary: { failureKind: "other" } });
   });
 
   it("does nothing for a job another invocation already claimed", async () => {

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
+import type { ScrapeFailureKind } from "@/lib/scraper/failureKind";
+
 export type ScrapeJobStatus = "pending" | "running" | "success" | "failed";
 
 export interface ScrapeJobStatusResponse {
@@ -8,7 +10,8 @@ export interface ScrapeJobStatusResponse {
   status: ScrapeJobStatus;
   progress: string | null;
   error: string | null;
-  resultSummary: { subjectsCount: number; examHistoryCount: number } | null;
+  /** A finished job carries counts; a failed one carries why it failed. */
+  resultSummary: { subjectsCount?: number; examHistoryCount?: number; failureKind?: ScrapeFailureKind } | null;
 }
 
 const TERMINAL_STATUSES: ScrapeJobStatus[] = ["success", "failed"];
@@ -81,6 +84,7 @@ export function useScrapeJobPolling(jobId: string | null) {
     status,
     progress: query.data?.progress ?? null,
     error,
+    failureKind: query.data?.resultSummary?.failureKind ?? null,
     resultSummary: query.data?.resultSummary ?? null,
     isSyncing: !!jobId && status !== "success" && status !== "failed",
   };

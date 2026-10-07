@@ -5,7 +5,7 @@ import https from "https";
 import type { ScrapeJobScope } from "@/lib/db/schema";
 import { mapWithConcurrency } from "./concurrency";
 import { extractCourseRowsFromDashboard, type CourseRow } from "./htmlParser";
-import { loginToPortal } from "./portalHttpClient";
+import { loginToPortal, PortalUnavailableError } from "./portalHttpClient";
 
 /**
  * Pulls the raw HTML needed to build a student's `details` record from the college parent portal
@@ -172,7 +172,7 @@ async function buildResultFromDashboard(
   });
 
   if (failedFetches > 0) {
-    throw new Error(
+    throw new PortalUnavailableError(
       `Could not download ${failedFetches} of ${uniqueUrls.length} portal pages. Your saved data was left unchanged — please try again.`,
     );
   }
