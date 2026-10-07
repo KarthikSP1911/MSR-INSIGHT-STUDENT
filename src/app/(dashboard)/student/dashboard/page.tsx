@@ -142,7 +142,7 @@ export default function StudentDashboard() {
     // DB hiccup doesn't permanently destroy a valid "Remember Me" cookie.
     retry: (failureCount, error) => {
       const err = error as { status?: number };
-      if (err?.status === 401) return false;
+      if (err?.status === 401 || err?.status === 404) return false;
       return failureCount < 2;
     },
     retryDelay: 1000,
@@ -176,13 +176,20 @@ export default function StudentDashboard() {
 
       if (response.ok && body.success) {
         const student = body.data as Student;
-        writeCachedProfile(student);
+        // A brand-new row has nothing scraped yet; it must not replace a populated saved copy.
+        if (hasScrapedData(student.details)) writeCachedProfile(student);
         return { student, fromCache: false, savedAt: null };
       }
 
       if (response.status >= 500) {
         const saved = await fromSavedCopy();
         if (saved) return saved;
+      }
+
+      // The database is back but has no row for someone who signed in while it was down. The saved copy is
+      // never uploaded (the server trusts only the portal), so a normal sign-in is what creates the row.
+      if (response.status === 404 && (await fromSavedCopy())) {
+        throw { redirectTo: "/student-login?relogin=1&notice=server-back", status: 404 };
       }
 
       // Transient server / network error — throw a plain Error so TanStack Query
