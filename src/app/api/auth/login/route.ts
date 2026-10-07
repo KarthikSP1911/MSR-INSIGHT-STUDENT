@@ -112,7 +112,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (!existing) {
-      await db.insert(students).values({ usn, dob, currentYear: 0, details: {} });
+      // A second login for the same new USN (double-click, another tab) can insert first; that row is equivalent.
+      await db.insert(students).values({ usn, dob, currentYear: 0, details: {} }).onConflictDoNothing({ target: students.usn });
     } else if (existing.dob !== dob) {
       await db.update(students).set({ dob }).where(eq(students.usn, usn));
     }
