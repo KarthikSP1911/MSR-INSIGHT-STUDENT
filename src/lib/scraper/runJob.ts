@@ -13,7 +13,7 @@ import { scrapeAndSyncStudent } from "./scrapeAndSync";
  */
 export const JOB_DEADLINE_MS = 45_000;
 
-function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
+export function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new PortalUnavailableError("Syncing took too long. The portal may be slow right now — please try again in a few minutes.")),
