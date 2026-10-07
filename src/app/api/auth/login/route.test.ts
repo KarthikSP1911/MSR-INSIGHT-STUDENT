@@ -58,6 +58,10 @@ describe("POST /api/auth/login: nothing is stored for details that aren't valid"
     ["a USN that is clearly not one", { ...firstTime, usn: "HELLO" }],
     ["a USN missing its serial", { ...firstTime, usn: "1MS23IS" }],
     ["a USN with extra characters", { ...firstTime, usn: "1MS23IS051; DROP TABLE" }],
+    ["a temporary suffix with no letter", { ...firstTime, usn: "1MS23IS051-" }],
+    ["an unknown suffix letter", { ...firstTime, usn: "1MS23IS051-X" }],
+    ["a suffix without the hyphen", { ...firstTime, usn: "1MS23IS051T" }],
+    ["a doubled suffix", { ...firstTime, usn: "1MS23IS051-T-T" }],
     ["a malformed date of birth", { ...firstTime, dob: "2004/11/19" }],
     ["a date that doesn't exist", { ...firstTime, dob: "31-02-2004" }],
   ])("rejects %s without touching the portal or the database", async (_label, body) => {
@@ -138,6 +142,19 @@ describe("POST /api/auth/login: verified students", () => {
     expect(job).toMatchObject({ usn: USN, scope: "full", trigger: "login" });
     expect(decryptText(job.encryptedPin!)).toBe("1234");
     expect(schedule).toHaveBeenCalledWith(db, job.id);
+  });
+
+  it("accepts a first-year temporary USN and keeps it as its own student", async () => {
+    portal.mockResolvedValue({ dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1 });
+
+    const res = await login({ ...firstTime, usn: "1ms23is051-t" });
+
+    expect(res.status).toBe(200);
+    expect(portal).toHaveBeenCalledWith(expect.objectContaining({ usn: "1MS23IS051-T" }), expect.anything());
+    const [student] = await db.select().from(students);
+    expect(student.usn).toBe("1MS23IS051-T");
+    const [job] = await db.select().from(scrapeJobs);
+    expect(job.usn).toBe("1MS23IS051-T");
   });
 
   it("lets the same new student log in from several tabs at once without a failure", async () => {
