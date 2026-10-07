@@ -1,12 +1,11 @@
 import type {
   Assessment,
   AttendanceDetails,
-  ExamHistoryEntry,
   StudentDetails,
   Subject,
 } from "@/lib/studentDetails";
 // This normalizer intentionally has no concept of a "placement" field anywhere — the
-// placement section is excluded upstream in htmlParser.ts/puppeteerClient.ts and never
+// placement section is excluded upstream in htmlParser.ts/portalScraper.ts and never
 // reaches here, so there's nothing for it to pass through.
 
 /**
@@ -45,10 +44,8 @@ export interface RawScrapedRecord {
   usn?: string;
   name?: string;
   class_details?: string;
-  cgpa?: string;
   last_updated?: string;
   current_semester?: RawSubjectEntry[];
-  exam_history?: ExamHistoryEntry[];
 }
 
 function standardizeAssessmentType(rawName: string | undefined): string {
@@ -178,10 +175,8 @@ export function normalizeStudentRecord(scrapedRecord: RawScrapedRecord): Student
     usn: scrapedRecord.usn,
     name: scrapedRecord.name,
     class_details: scrapedRecord.class_details,
-    cgpa: scrapedRecord.cgpa,
     last_updated: scrapedRecord.last_updated,
     current_year: currentYear,
     subjects: normalizedSubjects,
-    exam_history: scrapedRecord.exam_history || [],
   };
 }

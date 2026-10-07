@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { Award, BookOpen, Layers, TrendingUp } from "lucide-react";
 import {
   Tooltip,
@@ -17,6 +17,8 @@ import {
 
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import { UpdateButton } from "@/components/dashboard/UpdateButton";
+import OpenPortalButton from "@/components/dashboard/OpenPortalButton";
+import InstallAppButton from "@/components/pwa/InstallAppButton";
 import type { ExamHistoryEntry, Subject } from "@/lib/studentDetails";
 
 interface PerformanceSectionProps {
@@ -46,6 +48,10 @@ const getAttendanceBarColor = (attendance: number): string => {
 
 /** Matches the same >=30 threshold used by the CIE marks pill in the table below. */
 const getCieBarColor = (marks: number): string => (marks >= 30 ? "var(--success, #10B981)" : "var(--warning, #F59E0B)");
+
+/** Module-level so the charts get the same function every render (new props would re-run label layout). */
+const formatAttendanceLabel = (value: ReactNode) => `${Math.round(Number(value) || 0)}%`;
+const formatMarksLabel = (value: ReactNode) => `${Math.round(Number(value) || 0)}`;
 
 /** Row height for the Attendance chart's single-line subject labels. */
 const SUBJECT_ROW_HEIGHT = 44;
@@ -179,6 +185,155 @@ const MobileInlineBarChart = ({
   </div>
 );
 
+interface ChartProps {
+  currentSem: Subject[];
+  onSelectSubject: (subject: Subject) => void;
+}
+
+/**
+ * The two desktop bar charts live in their own memoized components on purpose. Recharts restarts a bar's
+ * animation (tearing the bars down and rebuilding them, which shows as a blink) whenever its `Bar` element
+ * is re-rendered. PerformanceSection re-renders every second while the update cooldown ticks and every
+ * couple of seconds while a sync polls, so inlined charts blinked after every update. Memoized, a chart
+ * only re-renders when the scraped data (or the click handler, a stable state setter) really changes.
+ */
+const AttendanceBarChart = memo(function AttendanceBarChart({ currentSem, onSelectSubject }: ChartProps) {
+  const data = useMemo(() => currentSem.map((s) => ({ ...s, fill: getAttendanceBarColor(s.attendance || 0) })), [currentSem]);
+  const cells = useMemo(() => currentSem.map((s, i) => <Cell key={i} fill={getAttendanceBarColor(s.attendance || 0)} />), [currentSem]);
+
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(280, currentSem.length * SUBJECT_ROW_HEIGHT + 60)}>
+      <BarChart
+        layout="vertical"
+        data={data}
+        margin={{ top: 28, right: 56, left: 10, bottom: 10 }}
+        barSize={22}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" horizontal={false} />
+        <XAxis
+          type="number"
+          domain={[0, 100]}
+          ticks={[0, 25, 50, 75, 100]}
+          tickFormatter={(v) => `${v}%`}
+          stroke="var(--text-muted)"
+          style={{ fontSize: "11px" }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          type="category"
+          dataKey="name"
+          width={180}
+          interval={0}
+          stroke="var(--text-muted)"
+          style={{ fontSize: "12px" }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <Tooltip content={<AttendanceTooltip />} cursor={{ fill: "var(--bg-primary)" }} />
+        <ReferenceLine
+          x={50}
+          stroke="var(--text-muted)"
+          strokeDasharray="4 4"
+          label={{ value: "50%", position: "top", fill: "var(--text-muted)", fontSize: 11 }}
+        />
+        <ReferenceLine
+          x={75}
+          stroke="var(--warning, #F59E0B)"
+          strokeWidth={2}
+          label={{ value: "75%", position: "top", fill: "var(--warning, #F59E0B)", fontSize: 12, fontWeight: 700 }}
+        />
+        <ReferenceLine
+          x={85}
+          stroke="var(--text-muted)"
+          strokeDasharray="4 4"
+          label={{ value: "85%", position: "top", fill: "var(--text-muted)", fontSize: 11 }}
+        />
+        <Bar
+          dataKey="attendance"
+          radius={[0, 4, 4, 0]}
+          onClick={(data) => data && onSelectSubject((data as unknown as { payload: Subject }).payload)}
+          style={{ cursor: "pointer" }}
+        >
+          {cells}
+          <LabelList
+            dataKey="attendance"
+            position="right"
+            formatter={formatAttendanceLabel}
+            style={{ fill: "var(--text-primary)", fontSize: "12px", fontWeight: 600 }}
+          />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+});
+
+const CieBarChart = memo(function CieBarChart({ currentSem, onSelectSubject }: ChartProps) {
+  const data = useMemo(
+    () =>
+      currentSem.map((s) => ({
+        ...s,
+        label: `${s.name}${CIE_LABEL_SEPARATOR}${s.code}`,
+        fill: getCieBarColor(s.marks || 0),
+      })),
+    [currentSem],
+  );
+  const cells = useMemo(() => currentSem.map((s, i) => <Cell key={i} fill={getCieBarColor(s.marks || 0)} />), [currentSem]);
+
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(280, currentSem.length * CIE_ROW_HEIGHT + 60)}>
+      <BarChart
+        layout="vertical"
+        data={data}
+        margin={{ top: 28, right: 56, left: 10, bottom: 10 }}
+        barSize={22}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" horizontal={false} />
+        <XAxis
+          type="number"
+          domain={[0, 50]}
+          ticks={[0, 10, 20, 30, 40, 50]}
+          stroke="var(--text-muted)"
+          style={{ fontSize: "11px" }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          type="category"
+          dataKey="label"
+          width={CIE_YAXIS_WIDTH}
+          interval={0}
+          tick={<CieYAxisTick />}
+          axisLine={false}
+          tickLine={false}
+        />
+        <Tooltip content={<MarksTooltip />} cursor={{ fill: "var(--bg-primary)" }} />
+        <ReferenceLine
+          x={30}
+          stroke="var(--warning, #F59E0B)"
+          strokeWidth={2}
+          label={{ value: "30", position: "top", fill: "var(--warning, #F59E0B)", fontSize: 12, fontWeight: 700 }}
+        />
+        <Bar
+          dataKey="marks"
+          radius={[0, 4, 4, 0]}
+          onClick={(data) => data && onSelectSubject((data as unknown as { payload: Subject }).payload)}
+          style={{ cursor: "pointer" }}
+        >
+          {cells}
+          <LabelList
+            dataKey="marks"
+            position="right"
+            formatter={formatMarksLabel}
+            style={{ fill: "var(--text-primary)", fontSize: "12px", fontWeight: 600 }}
+          />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+});
+
+
 export default function PerformanceSection({
   currentSem,
   totalCredits,
@@ -201,12 +356,16 @@ export default function PerformanceSection({
         sectionTitle="Current Semester Performance"
         sectionSubtitle="A detailed breakdown of your ongoing academic progress"
         actions={
-          <UpdateButton
-            onClick={handleUpdate}
-            isLoading={updateStatus === "loading"}
-            cooldownActive={isCooldownActive}
-            formattedCooldown={formatTime}
-          />
+          <div className="header-action-group">
+            <OpenPortalButton />
+            <UpdateButton
+              onClick={handleUpdate}
+              isLoading={updateStatus === "loading"}
+              cooldownActive={isCooldownActive}
+              formattedCooldown={formatTime}
+            />
+            <InstallAppButton />
+          </div>
         }
       />
 
@@ -282,71 +441,7 @@ export default function PerformanceSection({
           </div>
           <div className="chart-body chart-body--responsive">
             <div className="chart-view-desktop">
-            <ResponsiveContainer width="100%" height={Math.max(280, currentSem.length * SUBJECT_ROW_HEIGHT + 60)}>
-              <BarChart
-                layout="vertical"
-                data={currentSem.map((s) => ({ ...s, fill: getAttendanceBarColor(s.attendance || 0) }))}
-                margin={{ top: 28, right: 56, left: 10, bottom: 10 }}
-                barSize={22}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" horizontal={false} />
-                <XAxis
-                  type="number"
-                  domain={[0, 100]}
-                  ticks={[0, 25, 50, 75, 100]}
-                  tickFormatter={(v) => `${v}%`}
-                  stroke="var(--text-muted)"
-                  style={{ fontSize: "11px" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={180}
-                  interval={0}
-                  stroke="var(--text-muted)"
-                  style={{ fontSize: "12px" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip content={<AttendanceTooltip />} cursor={{ fill: "var(--bg-primary)" }} />
-                <ReferenceLine
-                  x={50}
-                  stroke="var(--text-muted)"
-                  strokeDasharray="4 4"
-                  label={{ value: "50%", position: "top", fill: "var(--text-muted)", fontSize: 11 }}
-                />
-                <ReferenceLine
-                  x={75}
-                  stroke="var(--warning, #F59E0B)"
-                  strokeWidth={2}
-                  label={{ value: "75%", position: "top", fill: "var(--warning, #F59E0B)", fontSize: 12, fontWeight: 700 }}
-                />
-                <ReferenceLine
-                  x={85}
-                  stroke="var(--text-muted)"
-                  strokeDasharray="4 4"
-                  label={{ value: "85%", position: "top", fill: "var(--text-muted)", fontSize: 11 }}
-                />
-                <Bar
-                  dataKey="attendance"
-                  radius={[0, 4, 4, 0]}
-                  onClick={(data) => data && onSelectSubject((data as unknown as { payload: Subject }).payload)}
-                  style={{ cursor: "pointer" }}
-                >
-                  {currentSem.map((s, i) => (
-                    <Cell key={i} fill={getAttendanceBarColor(s.attendance || 0)} />
-                  ))}
-                  <LabelList
-                    dataKey="attendance"
-                    position="right"
-                    formatter={(value: ReactNode) => `${Math.round(Number(value) || 0)}%`}
-                    style={{ fill: "var(--text-primary)", fontSize: "12px", fontWeight: 600 }}
-                  />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+              <AttendanceBarChart currentSem={currentSem} onSelectSubject={onSelectSubject} />
             </div>
             <MobileInlineBarChart
               items={currentSem.map((s) => ({
@@ -371,61 +466,7 @@ export default function PerformanceSection({
           </div>
           <div className="chart-body chart-body--responsive">
             <div className="chart-view-desktop">
-            <ResponsiveContainer width="100%" height={Math.max(280, currentSem.length * CIE_ROW_HEIGHT + 60)}>
-              <BarChart
-                layout="vertical"
-                data={currentSem.map((s) => ({
-                  ...s,
-                  label: `${s.name}${CIE_LABEL_SEPARATOR}${s.code}`,
-                  fill: getCieBarColor(s.marks || 0),
-                }))}
-                margin={{ top: 28, right: 56, left: 10, bottom: 10 }}
-                barSize={22}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" horizontal={false} />
-                <XAxis
-                  type="number"
-                  domain={[0, 50]}
-                  ticks={[0, 10, 20, 30, 40, 50]}
-                  stroke="var(--text-muted)"
-                  style={{ fontSize: "11px" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="label"
-                  width={CIE_YAXIS_WIDTH}
-                  interval={0}
-                  tick={<CieYAxisTick />}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip content={<MarksTooltip />} cursor={{ fill: "var(--bg-primary)" }} />
-                <ReferenceLine
-                  x={30}
-                  stroke="var(--warning, #F59E0B)"
-                  strokeWidth={2}
-                  label={{ value: "30", position: "top", fill: "var(--warning, #F59E0B)", fontSize: 12, fontWeight: 700 }}
-                />
-                <Bar
-                  dataKey="marks"
-                  radius={[0, 4, 4, 0]}
-                  onClick={(data) => data && onSelectSubject((data as unknown as { payload: Subject }).payload)}
-                  style={{ cursor: "pointer" }}
-                >
-                  {currentSem.map((s, i) => (
-                    <Cell key={i} fill={getCieBarColor(s.marks || 0)} />
-                  ))}
-                  <LabelList
-                    dataKey="marks"
-                    position="right"
-                    formatter={(value: ReactNode) => `${Math.round(Number(value) || 0)}`}
-                    style={{ fill: "var(--text-primary)", fontSize: "12px", fontWeight: 600 }}
-                  />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+              <CieBarChart currentSem={currentSem} onSelectSubject={onSelectSubject} />
             </div>
             <MobileInlineBarChart
               items={currentSem.map((s) => ({

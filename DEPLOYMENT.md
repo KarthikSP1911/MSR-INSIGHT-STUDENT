@@ -1,28 +1,54 @@
-﻿# Deploying MSR Insight Student Dashboard to Vercel
+# Deploying MSR Insight Student Dashboard to Vercel
 
 ## Overview
 
-The entire app — UI, API routes, and the portal scrape runner — deploys as a single
-Next.js project to Vercel's free (Hobby) tier. No second host (Render, Fly, Railway, etc.)
-is needed. Since the scraper connects to a **per-student Browserless.io remote browser**
-over a WebSocket instead of launching a local Chromium process, the whole scrape fits
-comfortably inside Vercel's serverless function execution window.
+The entire app — UI, API routes, and the portal scraper — deploys as a single Next.js project to
+Vercel's free (Hobby) tier. No second host (Render, Fly, Railway, etc.), no browser service, and no
+per-student tokens are needed: the scraper logs in to the college portal with plain HTTP `fetch`, so
+it is small, fast, and fits comfortably inside a serverless function.
+
+> Vercel's Hobby plan is for personal, non-commercial use. Move to a paid plan if this becomes a
+> commercial service.
 
 ## Architecture recap
 
 ```
 Browser → Vercel (Next.js)
-                ├─ /api/auth/login         ← validates token, enqueues job
-                ├─ /api/report/update      ← enqueues job
-                ├─ /api/scrape-jobs/run    ← claims job, connects to Browserless, scrapes
-                └─ /api/scrape-jobs/[id]   ← polled by useScrapeJobPolling
+                ├─ /api/auth/login        ← signs in, enqueues a refresh if data is stale
+                ├─ /api/report/update     ← manual refresh (current semester or exam results)
+                ├─ /api/report/student    ← cached report; scrapes if the student has none yet
+                │        └─ after(): claimAndRunJob → log in over HTTP, fetch pages, write DB
+                └─ /api/scrape-jobs/[id]  ← polled by useScrapeJobPolling
                                    ↕
                          Neon Postgres (scrape_jobs + students)
                                    ↕
-              Browserless.io (per-student remote Chromium)
+                  parents.msrit.edu (plain HTTPS requests)
 ```
 
-## Part 1 — Vercel: deploy the Next.js app
+Routes that scrape export `maxDuration = 60` and run the job inside Next's `after()`, which keeps
+the invocation alive after the response is sent. Each job also has its own 45-second deadline, so it
+fails cleanly with a message instead of being killed by the platform.
+
+## Part 1 — Database
+
+Apply the migrations to your Neon database **before** deploying the new code:
+
+```bash
+npm run db:migrate   # DATABASE_URL pointed at your Neon project
+```
+
+The two newest migrations change existing data:
+
+| Migration | What it does |
+|---|---|
+| `0008_drop_browserless_columns.sql` | Drops `students.encrypted_browserless_token`, `students.browserless_token_valid`, `scrape_jobs.encrypted_browserless_token`. **Irreversible**: saved Browserless tokens are deleted (they are no longer used). |
+| `0009_split_exam_history.sql` | Adds `students.exam_history`, `students.cgpa`, `students.exam_history_updated_at`, copies each student's existing exam history and CGPA out of `details` into them, and renames the job scope `recurring` to `current`. |
+
+The previous deployment reads the dropped columns, so it will error between migrating and the new
+deploy going live; do the two back to back. Take a Neon branch/backup first if you want a rollback
+point.
+
+## Part 2 — Vercel: deploy the Next.js app
 
 1. **Vercel dashboard**: vercel.com → Add New → Project → import the GitHub repo.
    Framework preset auto-detects as Next.js; root directory = repo root.
@@ -36,9 +62,7 @@ Browser → Vercel (Next.js)
    | `JWT_SECRET` | Long random secret — `openssl rand -base64 32`. |
    | `ENCRYPTION_SECRET` | Different long random secret — `openssl rand -base64 32`. |
 
-   > **That's it.** No `PUPPETEER_SKIP_DOWNLOAD`, no `PUPPETEER_EXECUTABLE_PATH`, no
-   > `BROWSERLESS_TOKEN` global env var — tokens are per-student and stored encrypted in
-   > Postgres, not in env.
+   That is all. There is no browser to configure and no token to provide.
 
 3. Trigger the deploy (push to the connected branch, or "Deploy" in the dashboard).
 
@@ -46,66 +70,44 @@ Browser → Vercel (Next.js)
 
 No `vercel.json` is required.
 
-## Part 2 — Database
+## Part 3 — How syncing behaves
 
-The existing Neon database and connection string are reused. Confirm migrations are current:
-
-```bash
-npm run db:migrate   # DATABASE_URL pointed at your Neon project
-```
-
-The latest migration (`drizzle/0006_same_shocker.sql`) adds:
-- `students.encrypted_browserless_token` (text, nullable)
-- `students.browserless_token_valid` (boolean, default true)
-- `scrape_jobs.encrypted_browserless_token` (text, nullable)
-
-## Part 3 — Per-student Browserless.io tokens
-
-Students provide their own [Browserless.io](https://www.browserless.io) API token at
-first login. Browserless offers a **free tier** sufficient for one student's scrape volume.
-
-**Where to get a token:**
-1. Sign up at [browserless.io](https://www.browserless.io).
-2. Go to Account → API Key.
-3. Copy the token and paste it into the login form's "Browserless API Token" field.
-
-**Security:** the token is validated synchronously on submission (5-second test-connect to
-`wss://chrome.browserless.io`), then encrypted with AES-256-GCM (same scheme as the portal
-PIN) before being stored on `students.encrypted_browserless_token` and snapshotted into the
-`scrape_jobs` row. It is never returned by any API response, never logged, and never included
-in error messages.
-
-**Token expiry:** if Browserless rejects a token during a scrape, `browserlessTokenValid` is
-flipped `false` on the student row and the job is marked `failed` with error
-`browserless_token_invalid`. The next login re-prompts specifically for a new token (PIN is
-not required again if still valid).
-
-## Part 4 — Scrape route timeout
-
-`POST /api/scrape-jobs/run` has `export const maxDuration = 60` (Vercel Hobby limit).
-
-| Scope | Typical time | Notes |
+| When | What is fetched | Target time |
 |---|---|---|
-| `recurring` (login) | 15–30s | Skips exam-history page; merges from prior scrape |
-| `full` (manual sync) | 20–40s | Fetches all pages including exam history |
+| First login | Everything (`full`) | 10–25s |
+| Login with data older than 24h | Attendance and CIE marks (`current`) | 8–20s |
+| Login with exam results older than 7 days | Exam results (`exam_history`) | 5–10s |
+| "Update Dashboard" button (1-minute cooldown) | `current` | 8–20s |
+| "Refresh results" button on Exam History (1-minute cooldown) | `exam_history` | 5–10s |
+| Login with everything fresh | Nothing; signs in instantly | — |
 
-If a scrape exceeds 60s, Vercel terminates the function and the job row stays in `running`
-until the client's `MAX_POLL_MS` (6 min) backstop fires, surfacing a timeout to the student.
-The student can retry via "Sync now" once the 5-minute cooldown expires.
+Target times are goals for staying well inside the 60-second limit, not measurements; check
+`scrape_jobs.result_summary` (it records per-phase timings) after your first real syncs.
+
+Logins never wait for a refresh: the session is issued immediately and the dashboard shows the
+cached data with a "syncing" state until the job finishes. After a failed sync (for example the
+saved PIN was changed on the portal) logins stop auto-syncing for 15 minutes, so the portal is not
+hit with a wrong PIN on every login.
+
+If a function is killed before it can record a result, the job is marked failed the next time that
+student starts a sync (jobs stuck for more than 2 minutes), so one dead job can never block them.
+
+## Installable app (PWA)
+
+Nothing extra to configure: Vercel serves everything over HTTPS, which installation requires. After deploying, open the site on a phone, sign in, and within a few seconds the install prompt should appear (Android/Chrome: Install button; iPhone: Add to Home Screen steps). It will not reappear for 24 hours, or ever once the app is installed. `/sw.js` is served with `no-cache` so service worker updates are picked up on the next visit.
 
 ## Verification checklist
 
 1. Vercel app loads; `/student-login` renders.
-2. First-time login shows secondary auth section with Verification Option, Last 4 Digits,
-   and Browserless API Token fields.
-3. Submit with an invalid Browserless token → inline error under the token field, form stays
-   open, no session minted.
-4. Submit with a valid token + correct PIN → session minted, redirected to dashboard with
-   `syncJobId` param.
-5. Dashboard's `useScrapeJobPolling` transitions: pending → running → success.
-6. Drizzle Studio (`npm run db:studio`) confirms:
-   - `scrape_jobs` row reached `success`.
-   - `students` row has `encrypted_browserless_token` set, `browserless_token_valid = true`.
-7. "Sync now" button works after 5-minute cooldown.
-8. Simulate a bad token: manually set `browserless_token_valid = false` in the DB, then
-   log in again — secondary auth section should reopen showing only the token field.
+2. First-time login asks only for Verification Option and Last 4 Digits (no token field).
+3. Wrong PIN → "Invalid portal credentials or 4-digit PIN" and the form reopens with the error.
+4. Correct PIN → redirected to the dashboard with a `syncJobId` param; polling goes
+   pending → running → success and subjects plus exam history appear.
+5. Drizzle Studio (`npm run db:studio`) shows the `scrape_jobs` row `success` with
+   `result_summary.method = "http"`, and `students.exam_history_updated_at` set.
+6. Log out and in again straight away: instant login, no job.
+7. Simulate staleness: set `details.last_updated` to two days ago for a test student, log in
+   again — a `current` job runs in the background while the cached data stays visible.
+8. Exam History → "Refresh results" works, and is disabled for 1 minute afterwards.
+9. Set a job to `running` with an old `created_at`, then sync again — the old job is failed and a
+   new one runs.

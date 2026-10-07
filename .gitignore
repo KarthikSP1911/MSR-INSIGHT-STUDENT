@@ -44,3 +44,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .scratch-snapshots/
+
+# throwaway local experiments (may touch real credentials), never committed
+/.scratch/

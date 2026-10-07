@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
 import {
-  boolean,
   index,
   integer,
   jsonb,
@@ -11,15 +10,18 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import type { StudentDetails } from "@/lib/studentDetails";
+import type { ExamHistoryEntry, StudentDetails } from "@/lib/studentDetails";
 
 /**
- * A student row. `details` mirrors MSR-Insight's normalized scrape shape:
- * { usn, name, class_details, cgpa, last_updated, current_year,
- *   subjects: [{ code, name, marks, attendance, attendance_details, assessments }],
- *   exam_history: [{ semester, sgpa, credits_earned, courses }] }
+ * A student row. The scrape is stored in two independently refreshed parts, because the portal's
+ * data changes at very different rates:
+ *  - `details` (current semester): { usn, name, class_details, last_updated, current_year,
+ *    subjects: [{ code, name, marks, attendance, attendance_details, assessments }] } — attendance
+ *    and CIE marks change daily, refreshed at most every 24h on login (see scrapePolicy.ts).
+ *  - `examHistory` + `cgpa` (stamped by `examHistoryUpdatedAt`): results change once per exam
+ *    cycle, so they are fetched on first login, on demand, and when older than 7 days.
  * The portal's Placement section is deliberately never scraped, parsed, or stored —
- * see puppeteerClient.ts/htmlParser.ts — so no `placement` key exists here.
+ * see portalScraper.ts/htmlParser.ts — so no `placement` key exists here.
  */
 export const students = pgTable("students", {
   usn: text("usn").primaryKey(),
@@ -30,14 +32,10 @@ export const students = pgTable("students", {
   currentYear: integer("current_year").notNull().default(0),
   authType: text("auth_type"), // "Father's Mobile" | "Mother's Mobile" | "ABC ID"
   encryptedPin: text("encrypted_pin"), // AES-256-GCM "iv:authTag:cipher" hex
-  // Per-student Browserless.io API token (AES-256-GCM, same "iv:authTag:cipher" hex shape as
-  // encryptedPin) used to connect to a remote Chromium instead of launching one locally — see
-  // src/lib/scraper/puppeteerClient.ts. `browserlessTokenValid` flips false when a scrape fails
-  // specifically because the token was rejected by Browserless (bad/expired), as opposed to a
-  // portal-login failure — the login flow then re-prompts for a fresh token only.
-  encryptedBrowserlessToken: text("encrypted_browserless_token"),
-  browserlessTokenValid: boolean("browserless_token_valid").notNull().default(true),
   details: jsonb("details").$type<StudentDetails>().notNull().default({}),
+  examHistory: jsonb("exam_history").$type<ExamHistoryEntry[]>().notNull().default([]),
+  cgpa: text("cgpa"),
+  examHistoryUpdatedAt: timestamp("exam_history_updated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -56,20 +54,19 @@ export const scrapeJobStatuses = ["pending", "running", "success", "failed"] as 
 export type ScrapeJobStatus = (typeof scrapeJobStatuses)[number];
 
 /**
- * `recurring` fetches the dashboard + per-course attendance + CIE pages, skipping only
- * exam-history (the one thing that genuinely doesn't change between logins — it's only
- * updated once per exam cycle, unlike CIE marks which faculty post throughout the semester),
- * then merges the previous scrape's exam history/CGPA back in — see scrapeAndSync.ts. `full`
- * fetches everything, same as the scraper's original behavior.
+ * What a job fetches and writes:
+ *  - `current`: dashboard + per-course attendance + CIE pages -> `students.details`.
+ *  - `exam_history`: only the exam-results page -> `students.examHistory` / `cgpa`.
+ *  - `full`: both (first login). Each scope writes only its own columns, so there is nothing to merge.
  */
-export const scrapeJobScopes = ["recurring", "full"] as const;
+export const scrapeJobScopes = ["current", "exam_history", "full"] as const;
 export type ScrapeJobScope = (typeof scrapeJobScopes)[number];
 
 /**
  * A queued scrape request, claimed and run in-process by an API route
- * (src/lib/scraper/runJob.ts) rather than a standalone worker. `encryptedPin` and
- * `encryptedBrowserlessToken` are snapshots of the credentials to use for this job, always
- * encrypted at rest — never store either plaintext value, even transiently, in this table.
+ * (src/lib/scraper/runJob.ts) rather than a standalone worker. `encryptedPin` is a snapshot of
+ * the credential to use for this job, always encrypted at rest — never store the plaintext value,
+ * even transiently, in this table.
  */
 export const scrapeJobs = pgTable(
   "scrape_jobs",
@@ -81,7 +78,6 @@ export const scrapeJobs = pgTable(
     dob: text("dob").notNull(),
     authType: text("auth_type"),
     encryptedPin: text("encrypted_pin"),
-    encryptedBrowserlessToken: text("encrypted_browserless_token"),
     trigger: text("trigger").notNull().$type<ScrapeJobTrigger>(),
     scope: text("scope").notNull().$type<ScrapeJobScope>().default("full"),
     status: text("status").notNull().$type<ScrapeJobStatus>().default("pending"),

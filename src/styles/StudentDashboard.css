@@ -950,37 +950,54 @@
     display: none;
 }
 
-.sem-history-select {
+.mobile-history-label {
+    display: block;
+    padding-left: 4px;
+    margin-bottom: 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+/* The semester picker (src/components/dashboard/CustomSelect.tsx): full width, a comfortable 46px trigger
+   with the label on the left and the chevron on the right, and large touch rows in the menu. */
+.history-sem-select {
     width: 100%;
-    padding: 12px 16px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
+}
+
+.history-sem-select .custom-select {
+    height: 46px;
+    padding: 0 14px;
+    justify-content: space-between;
     border-radius: 12px;
-    color: var(--text-primary);
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 500;
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23F97316' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 12px center;
-    background-size: 16px;
-    cursor: pointer;
-    margin-top: 8px;
-    outline: none;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    transition: all 0.2s ease;
 }
 
-.sem-history-select:focus {
-    border-color: var(--accent-primary);
-    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.2);
+.history-sem-select .custom-select span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.sem-history-select option {
-    background-color: var(--bg-secondary);
-    color: var(--text-primary);
-    padding: 12px;
+.history-sem-select .custom-select-chevron {
+    color: var(--accent-primary);
+}
+
+/* The menu is portaled to <body>, so it is styled by its own class. */
+.custom-select-menu.history-sem-menu {
+    padding: 6px;
+    gap: 4px;
+    border-radius: 12px;
+}
+
+.history-sem-menu .custom-select-option {
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
 }
 
 .insights-grid {
@@ -1552,6 +1569,122 @@
     overflow: hidden;
 }
 
+/* Plain secondary buttons in a section header (Official Site, Install App). Deliberately quiet: no
+   glow, shadow or hover lift, unlike the Update Dashboard call-to-action. */
+.header-plain-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    box-shadow: none;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.header-plain-btn:hover {
+    background: var(--bg-surface);
+}
+
+.header-plain-btn:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.header-plain-btn svg {
+    flex-shrink: 0;
+}
+
+/* A <form> wrapping a header button must not become its own flex box. */
+.header-action-form {
+    display: contents;
+}
+
+/* Buttons sharing a section header (e.g. Update Dashboard + Install App). */
+.header-action-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+@media (max-width: 768px) {
+    /* Same pill shape and 40px touch height as Update Dashboard, but neutral. */
+    .header-plain-btn {
+        min-height: 40px;
+        padding: 8px 14px;
+        gap: 8px;
+        border-color: var(--border-bright);
+        border-radius: 9999px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    /* The mobile header shrink-wraps its actions; let this group span the full row. */
+    .section-header-actions:has(> .header-action-group) {
+        width: 100%;
+    }
+    .section-header-actions > .header-action-group {
+        width: 100% !important;
+    }
+
+    /* Every header button stays on ONE line on phones. Labels shrink with an ellipsis before anything can
+       wrap or overflow. */
+    .header-action-group {
+        flex-wrap: nowrap;
+        gap: 8px;
+    }
+    .header-action-group .header-plain-btn,
+    .header-action-group .update-dashboard-btn {
+        min-width: 0;
+    }
+    .header-action-group .update-dashboard-btn {
+        min-height: 40px;
+        padding: 8px 14px;
+        flex: 0 1 auto;
+    }
+    .header-action-group .btn-content {
+        min-width: 0;
+        gap: 8px;
+    }
+    .header-action-group .btn-content span,
+    .header-action-group .header-plain-btn span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    /* The clock icon already says "cooldown"; dropping the prefix keeps the countdown on the line. */
+    .header-action-group .cooldown-prefix {
+        display: none;
+    }
+
+    /* Install App is icon-only on phones: a 40px circle pinned to the right edge of the row. */
+    .header-plain-btn.install-app-btn {
+        flex: 0 0 40px;
+        width: 40px;
+        padding: 0;
+        justify-content: center;
+    }
+    .header-plain-btn.install-app-btn span {
+        display: none;
+    }
+}
+
+@media (max-width: 360px) {
+    .header-action-group .header-plain-btn:not(.install-app-btn),
+    .header-action-group .update-dashboard-btn {
+        padding-left: 10px;
+        padding-right: 10px;
+        gap: 6px;
+    }
+}
+
 .update-dashboard-btn:hover:not(:disabled) {
     background: var(--bg-surface);
     border-color: var(--accent-primary);
@@ -1986,11 +2119,25 @@
     gap: 2px;
     list-style: none;
     margin: 0;
+    /* Scrolling the list must not scroll the page behind it (the menu closes when the page scrolls). */
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-bright) transparent;
     transform-origin: top center;
     opacity: 0;
     transform: translateX(-50%) translateY(-6px) scale(0.96);
     transition: opacity 0.13s cubic-bezier(0.16, 1, 0.3, 1), transform 0.13s cubic-bezier(0.16, 1, 0.3, 1);
     pointer-events: none;
+}
+
+/* Opened upward because there isn't room below the trigger. */
+.custom-select-menu.is-above {
+    transform-origin: bottom center;
+}
+
+.custom-select-menu.is-above:not(.is-visible) {
+    transform: translateX(-50%) translateY(6px) scale(0.96);
 }
 
 .custom-select-menu.is-visible {
