@@ -2,10 +2,12 @@ import { z } from "zod";
 
 /**
  * A VTU-style USN: 1 digit, 2-letter college code, 2-digit admission year, 2-3 letter branch code and a
- * 3-digit serial, e.g. 1MS23IS051. This only rejects input that can't be a USN at all; whether the USN
- * really exists is proven against the portal before anything is saved (see verifyPortalLogin).
+ * 3-digit serial, e.g. 1MS23IS051. First-year students hold a temporary USN with a "-T" suffix
+ * (1MS23IS051-T) until their permanent one is issued. This only rejects input that can't be a USN at
+ * all; whether the USN really exists is proven against the portal before anything is saved (see
+ * verifyPortalLogin).
  */
-export const USN_PATTERN = /^[0-9][A-Z]{2}[0-9]{2}[A-Z]{2,3}[0-9]{3}$/;
+export const USN_PATTERN = /^[0-9][A-Z]{2}[0-9]{2}[A-Z]{2,3}[0-9]{3}(-T)?$/;
 
 const usn = z.string().trim().toUpperCase().regex(USN_PATTERN, "Enter a valid USN, for example 1MS23IS051");
 
