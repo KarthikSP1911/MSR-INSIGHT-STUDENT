@@ -5,6 +5,7 @@ import { normalizeAuthType } from "@/lib/auth/authType";
 import { decryptText } from "@/lib/auth/crypto";
 import { setSessionCookie } from "@/lib/auth/cookies";
 import { signStudentToken } from "@/lib/auth/jwt";
+import { verifyPortalLogin } from "@/lib/auth/verifyPortalLogin";
 import { getDb } from "@/lib/db/client";
 import { students } from "@/lib/db/schema";
 import { FAILED_SYNC_BACKOFF_MS, scopeForStaleness } from "@/lib/scrapePolicy";
@@ -21,6 +22,9 @@ export const maxDuration = 60;
  * flow preserved (it's what authorizes the portal scrape). Ported from
  * auth.service.js `login()` / auth.controller.js `login()`, with the
  * synchronous scrape replaced by enqueue-and-poll (see /api/scrape-jobs/[id]).
+ *
+ * Nothing is written for a student until the portal has accepted their USN, date of birth and PIN, so
+ * invalid or mistyped USNs never reach the database.
  *
  * A returning student with a saved PIN signs in immediately. If their data is stale
  * (see scrapePolicy.ts) the stale part is refreshed in the background and the dashboard
@@ -97,6 +101,14 @@ export async function POST(request: NextRequest) {
         message:
           "First-time login or PIN update requires secondary portal verification details (Father/Mother Mobile or ABC ID last 4 digits).",
       });
+    }
+
+    // Prove the USN, date of birth and PIN with the portal itself BEFORE writing anything. A mistyped or
+    // invented USN must never create a row (it used to be inserted first and only found invalid when the
+    // background scrape failed, leaving junk rows behind).
+    const verification = await verifyPortalLogin({ usn, dob, authType: targetAuthType, pin: targetPin });
+    if (!verification.ok) {
+      return NextResponse.json({ success: false, message: verification.message }, { status: verification.status });
     }
 
     if (!existing) {
