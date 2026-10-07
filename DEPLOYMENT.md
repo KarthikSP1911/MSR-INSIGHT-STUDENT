@@ -96,6 +96,53 @@ student starts a sync (jobs stuck for more than 2 minutes), so one dead job can 
 
 Nothing extra to configure: Vercel serves everything over HTTPS, which installation requires. After deploying, open the site on a phone, sign in, and within a few seconds the install prompt should appear (Android/Chrome: Install button; iPhone: Add to Home Screen steps). It will not reappear for 24 hours, or ever once the app is installed. `/sw.js` is served with `no-cache` so service worker updates are picked up on the next visit.
 
+## When the college portal is down
+
+The dashboard never depends on the portal to open: it always serves what is saved in the database.
+If a sync fails because the portal cannot be reached (network error, timeout, an HTTP error, or a
+login page the client can no longer replay), the job is recorded as failed with
+`result_summary.failureKind = "portal_unavailable"` and the student sees a banner, "The college portal
+isn't responding right now. You're seeing your saved data…", instead of an error. Saved data is never
+overwritten by a failed sync. The banner clears after the next successful sync.
+
+A wrong PIN is recorded as `credentials_rejected` and anything else as `other`; neither shows the banner.
+Brand-new students cannot sign in while the portal is down, because their details are checked against it
+before anything is stored; they get "Could not reach the college portal right now".
+
+## Monitoring
+
+`GET /api/health` runs `select 1` against the database and answers `200 {"status":"ok"}`, or `503` if the
+database is unreachable or takes longer than 5 seconds. It returns no student data and no error details,
+and it never calls the college portal, so a portal outage does not look like an app outage.
+
+Set up a free uptime monitor (for example UptimeRobot or Better Stack) yourself; it needs your account:
+
+1. Create an HTTP(S) monitor for `https://<your-domain>/api/health`.
+2. Use the **GET** method if the service offers a choice, and expect status `200`.
+3. Add your email (or phone push) as the alert contact.
+4. Choose the check interval carefully: Neon's free compute is billed by the time the database is awake
+   and it sleeps after about 5 idle minutes, so a check every 5 minutes can keep it awake all month and
+   use up the free allowance. As I understand the free limits (verify them on Neon's pricing page), an
+   interval of 15–30 minutes is a safer balance between detecting outages and staying inside the quota.
+
+## Rolling back a bad deploy
+
+Every push to `main` is built and promoted to Production, so a bad merge reaches students immediately.
+If the site is broken after a deploy:
+
+1. **Fastest, in the Vercel dashboard:** open **Deployments**, find the last deployment that was
+   **Ready** and worked, open its **⋯** menu and choose **Instant Rollback** (or **Promote to Production**).
+   This takes effect in seconds without touching git. On the Hobby plan Vercel may only allow rolling back
+   to the previous production deployment; if the option is missing, use step 2.
+2. **Permanent fix in git:** create a branch from `main` (`git checkout -b fix/revert-<name>`), run
+   `git revert -m 1 <merge-commit-sha>` for the bad merge, then merge that branch into `main` and push. Do
+   this after step 1 as well, otherwise the next push to `main` would redeploy the bad code.
+3. **Check it:** open `/api/health`, then log in and open the dashboard.
+
+A code rollback does **not** undo database migrations. Migrations here are applied by hand with
+`npm run db:migrate`; take a backup before running one, and prefer migrations that only add things.
+Deploy code that needs a new column only after that migration has been applied.
+
 ## Verification checklist
 
 1. Vercel app loads; `/student-login` renders.
@@ -111,3 +158,7 @@ Nothing extra to configure: Vercel serves everything over HTTPS, which installat
 8. Exam History → "Refresh results" works, and is disabled for 1 minute afterwards.
 9. Set a job to `running` with an old `created_at`, then sync again — the old job is failed and a
    new one runs.
+10. Open `/api/health` in a browser: it shows `{"status":"ok"}` with status 200.
+11. Simulate an outage on a local `npm run dev`: add `127.0.0.1 parents.msrit.edu` to your hosts file, press
+    Update Dashboard, and the amber "portal isn't responding" banner appears while the data stays on screen.
+    (Remove the hosts entry afterwards.) The failed job row has `result_summary.failureKind = "portal_unavailable"`.
