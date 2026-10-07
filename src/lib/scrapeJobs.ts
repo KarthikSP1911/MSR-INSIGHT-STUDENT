@@ -13,7 +13,22 @@ export interface EnqueueScrapeJobInput {
   trigger: ScrapeJobTrigger;
   /** What to fetch: `current`, `exam_history` or `full`. Defaults to `full`. */
   scope?: ScrapeJobScope;
+  /**
+   * For a user-requested refresh: if the job already in flight can't cover `scope`, throw
+   * `ScrapeInProgressError` instead of handing back a job that won't fetch what was asked for.
+   */
+  strictScope?: boolean;
 }
+
+/** A sync is already running and it will not fetch what this caller asked for. */
+export class ScrapeInProgressError extends Error {
+  constructor() {
+    super("A sync is already running. Please try again once it finishes.");
+    this.name = "ScrapeInProgressError";
+  }
+}
+
+const scopeCovers = (have: ScrapeJobScope, want: ScrapeJobScope) => have === "full" || have === want;
 
 /** Postgres SQLSTATE for a unique-constraint violation — surfaced as `.code` by the `@neondatabase/serverless` driver. */
 const UNIQUE_VIOLATION = "23505";
@@ -71,9 +86,12 @@ export async function hasRecentFailedJob(db: Db, usn: string, withinMs: number):
  * Coalesced against `scrape_jobs_active_usn_idx` (a partial unique index on
  * `usn` where status is pending/running): if a job for this USN is already
  * in flight, that job's id is returned instead of queuing a duplicate scrape.
+ * A job that hasn't started yet is widened to `full` when it wouldn't cover the requested
+ * scope; one that is already running can't be, so `strictScope` callers get `ScrapeInProgressError`.
  */
 export async function enqueueScrapeJob(db: Db, input: EnqueueScrapeJobInput): Promise<string> {
   await failStaleJobs(db, input.usn);
+  const scope = input.scope ?? "full";
 
   try {
     const [job] = await db
@@ -84,7 +102,7 @@ export async function enqueueScrapeJob(db: Db, input: EnqueueScrapeJobInput): Pr
         authType: input.authType ?? null,
         encryptedPin: input.plainPin ? encryptText(input.plainPin) : null,
         trigger: input.trigger,
-        scope: input.scope ?? "full",
+        scope,
         status: "pending",
       })
       .returning({ id: scrapeJobs.id });
@@ -94,10 +112,21 @@ export async function enqueueScrapeJob(db: Db, input: EnqueueScrapeJobInput): Pr
     if (!isUniqueViolation(err)) throw err;
 
     const [existing] = await db
-      .select({ id: scrapeJobs.id })
+      .select({ id: scrapeJobs.id, scope: scrapeJobs.scope })
       .from(scrapeJobs)
       .where(and(eq(scrapeJobs.usn, input.usn), inArray(scrapeJobs.status, ["pending", "running"])));
     if (!existing) throw err;
+    if (scopeCovers(existing.scope, scope)) return existing.id;
+
+    // Conditional on `pending` so it can't race a claim: once running, the scope is fixed.
+    const widened = await db
+      .update(scrapeJobs)
+      .set({ scope: "full" })
+      .where(and(eq(scrapeJobs.id, existing.id), eq(scrapeJobs.status, "pending")))
+      .returning({ id: scrapeJobs.id });
+    if (widened.length > 0) return existing.id;
+
+    if (input.strictScope) throw new ScrapeInProgressError();
     return existing.id;
   }
 }

@@ -140,6 +140,18 @@ describe("POST /api/auth/login: verified students", () => {
     expect(schedule).toHaveBeenCalledWith(db, job.id);
   });
 
+  it("lets the same new student log in from several tabs at once without a failure", async () => {
+    portal.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      return { dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1 };
+    });
+
+    const responses = await Promise.all([login(firstTime), login(firstTime), login(firstTime)]);
+
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200]);
+    expect(await rowCounts()).toEqual({ students: 1, jobs: 1 });
+  });
+
   it("does not contact the portal for a returning student with fresh data", async () => {
     const fresh = new Date().toISOString();
     await db.insert(students).values({

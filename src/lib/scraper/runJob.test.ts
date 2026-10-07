@@ -4,7 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { decryptText } from "@/lib/auth/crypto";
 import type { Db } from "@/lib/db/client";
 import { scrapeJobs, students } from "@/lib/db/schema";
-import { enqueueScrapeJob, hasRecentFailedJob, STALE_JOB_MS } from "@/lib/scrapeJobs";
+import { enqueueScrapeJob, hasRecentFailedJob, ScrapeInProgressError, STALE_JOB_MS } from "@/lib/scrapeJobs";
 import { createTestDb } from "@/test/pgliteDb";
 import { PortalAuthError, PortalUnavailableError } from "./portalHttpClient";
 import { claimAndRunJob } from "./runJob";
@@ -51,6 +51,33 @@ describe("enqueueScrapeJob", () => {
 
     expect(second).toBe(first);
     expect(await db.select().from(scrapeJobs)).toHaveLength(1);
+  });
+
+  it("widens a not-yet-started job to full when a different scope is requested", async () => {
+    const db = await setup();
+    const first = await enqueue(db, "current");
+
+    expect(await enqueue(db, "exam_history")).toBe(first);
+    expect((await jobRow(db, first)).scope).toBe("full");
+  });
+
+  it("keeps a full job as is when a narrower scope is requested", async () => {
+    const db = await setup();
+    const first = await enqueue(db, "full");
+
+    expect(await enqueue(db, "current")).toBe(first);
+    expect((await jobRow(db, first)).scope).toBe("full");
+  });
+
+  it("refuses a strict request a running job can't cover, and leaves the job alone", async () => {
+    const db = await setup();
+    const running = await enqueue(db, "current");
+    await db.update(scrapeJobs).set({ status: "running" }).where(eq(scrapeJobs.id, running));
+
+    await expect(
+      enqueueScrapeJob(db, { usn: "1MS23IS051", dob: "19-11-2004", plainPin: "1234", trigger: "manual_update", scope: "exam_history", strictScope: true }),
+    ).rejects.toBeInstanceOf(ScrapeInProgressError);
+    expect((await jobRow(db, running)).scope).toBe("current");
   });
 
   it("fails a job stuck past the stale limit so it can no longer block new syncs", async () => {
