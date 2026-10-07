@@ -109,6 +109,25 @@ A wrong PIN is recorded as `credentials_rejected` and anything else as `other`; 
 Brand-new students cannot sign in while the portal is down, because their details are checked against it
 before anything is stored; they get "Could not reach the college portal right now".
 
+## When the database is down
+
+Neon's free tier suspends compute when the monthly allowance is used up, and a cold start can be slow. The app
+degrades instead of breaking:
+
+- A signed-in student sees the profile copy saved in their browser, with a banner, and the page returns to live
+  data by itself once the database answers (it rechecks every minute).
+- Sign-in still works if the student types their PIN: the portal proves the details and supplies the data, and
+  nothing is written. Students who signed in this way are asked to sign in once more when the database returns, so
+  their row is created.
+- Manual refresh needs the database (it holds the saved PIN), so it sends the student to the sign-in form.
+
+Check **Neon console → Usage** now and then. The free compute allowance is consumed by time awake, not by query
+count, so the biggest levers are the uptime-monitor interval below and not polling `/api/health` often. Upgrading
+the Neon plan is the real fix if the allowance keeps running out.
+
+Backups: see [docs/BACKUP.md](docs/BACKUP.md). Add the `BACKUP_DATABASE_URL` and `BACKUP_PASSPHRASE` repository
+secrets, run the workflow once and rehearse a restore.
+
 ## Monitoring
 
 `GET /api/health` runs `select 1` against the database and answers `200 {"status":"ok"}`, or `503` if the

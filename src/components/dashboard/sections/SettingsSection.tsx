@@ -66,6 +66,10 @@ export default function SettingsSection() {
               <h4 style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>Why is my attendance not updating?</h4>
               <p>Attendance is synced periodically from the portal. If you notice discrepancies, try manually refreshing using the update button on the Performance tab (subject to cooldowns).</p>
             </div>
+            <div>
+              <h4 style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>What if the server is down?</h4>
+              <p>This device keeps a copy of your last synced data (never your PIN), so the dashboard can still open and show it with a notice. If you did not tick &quot;Remember me&quot;, that copy is removed when you log out or close the tab. To update while the server is down, sign in again and enter your PIN.</p>
+            </div>
             {/* <div>
               <h4 style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: 600, marginBottom: "4px" }}>How is my SGPA calculated?</h4>
               <p>Your SGPA is calculated based on the credits and grades obtained in each course during the semester according to university guidelines.</p>
