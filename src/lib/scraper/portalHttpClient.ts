@@ -44,6 +44,17 @@ export class PortalLoginUnsupportedError extends Error {
   }
 }
 
+/**
+ * The portal could not be reached or answered with an error (down, timing out, blocking us). Not the
+ * student's fault, so it is reported as an outage and their saved data is left alone.
+ */
+export class PortalUnavailableError extends Error {
+  constructor(message = "The college portal is not responding right now. Please try again in a few minutes.") {
+    super(message);
+    this.name = "PortalUnavailableError";
+  }
+}
+
 export interface PortalLoginInput {
   usn: string;
   /** Zero-padded or plain numbers; matched against the portal's <select> option values. */
@@ -117,21 +128,26 @@ async function send(t: Transport, method: "GET" | "POST", url: string, form?: Re
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const remaining = t.deadline - Date.now();
-    if (remaining <= 0) throw new Error("Portal login timed out");
+    if (remaining <= 0) throw new PortalUnavailableError("Portal login timed out");
 
-    const res = await t.fetchImpl(currentUrl, {
-      method: currentMethod,
-      redirect: "manual",
-      signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, remaining)),
-      headers: {
-        "User-Agent": USER_AGENT,
-        Cookie: t.jar.header(),
-        ...(body
-          ? { "Content-Type": "application/x-www-form-urlencoded", Referer: PORTAL_BASE_URL, Origin: PORTAL_ORIGIN }
-          : {}),
-      },
-      body,
-    });
+    let res: Response;
+    try {
+      res = await t.fetchImpl(currentUrl, {
+        method: currentMethod,
+        redirect: "manual",
+        signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, remaining)),
+        headers: {
+          "User-Agent": USER_AGENT,
+          Cookie: t.jar.header(),
+          ...(body
+            ? { "Content-Type": "application/x-www-form-urlencoded", Referer: PORTAL_BASE_URL, Origin: PORTAL_ORIGIN }
+            : {}),
+        },
+        body,
+      });
+    } catch (err) {
+      throw new PortalUnavailableError(`Could not reach the portal (${err instanceof Error ? err.message : "network error"})`);
+    }
     t.requestCount++;
     t.jar.store(res.headers);
 
@@ -145,7 +161,7 @@ async function send(t: Transport, method: "GET" | "POST", url: string, form?: Re
       continue;
     }
 
-    if (!res.ok) throw new Error(`The portal responded with HTTP ${res.status}`);
+    if (!res.ok) throw new PortalUnavailableError(`The portal responded with HTTP ${res.status}`);
     return { html: await res.text(), url: currentUrl };
   }
   throw new Error("The portal redirected too many times");

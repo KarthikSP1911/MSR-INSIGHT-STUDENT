@@ -7,6 +7,7 @@ import {
   loginToPortal,
   PortalAuthError,
   PortalLoginUnsupportedError,
+  PortalUnavailableError,
   pickSelectValue,
   type PortalLoginInput,
 } from "./portalHttpClient";
@@ -162,6 +163,18 @@ describe("loginToPortal", () => {
     const page = LOGIN_PAGE.replace(`name="${CSRF_1}"`, 'name="not-a-token"');
     const fetchImpl = (async () => new Response(page, { status: 200 })) as typeof fetch;
     await expect(loginToPortal(input, { fetchImpl })).rejects.toBeInstanceOf(PortalLoginUnsupportedError);
+  });
+
+  it("throws PortalUnavailableError when the portal answers with a server error", async () => {
+    const fetchImpl = (async () => new Response("Service Unavailable", { status: 503 })) as typeof fetch;
+    await expect(loginToPortal(input, { fetchImpl })).rejects.toBeInstanceOf(PortalUnavailableError);
+  });
+
+  it("throws PortalUnavailableError when the portal cannot be reached at all", async () => {
+    const fetchImpl = (async () => {
+      throw new TypeError("fetch failed");
+    }) as typeof fetch;
+    await expect(loginToPortal(input, { fetchImpl })).rejects.toBeInstanceOf(PortalUnavailableError);
   });
 
   it("fails cleanly once the overall deadline has passed", async () => {
