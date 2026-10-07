@@ -67,6 +67,25 @@ async function failStaleJobs(db: Db, usn: string): Promise<void> {
     );
 }
 
+/** How long finished jobs are kept (they are only useful for debugging and the failed-sync backoff). */
+export const FINISHED_JOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Deletes old finished jobs. Nothing else removes them, so without this the table grows for as long as the
+ * app runs (Neon's free tier is small) and every job keeps its encrypted PIN snapshot indefinitely. Done on
+ * enqueue rather than by a scheduled job so there is nothing extra to run or pay for.
+ */
+async function purgeFinishedJobs(db: Db): Promise<void> {
+  await db
+    .delete(scrapeJobs)
+    .where(
+      and(
+        inArray(scrapeJobs.status, ["success", "failed"]),
+        lt(scrapeJobs.createdAt, new Date(Date.now() - FINISHED_JOB_RETENTION_MS)),
+      ),
+    );
+}
+
 /** True if a sync for this student failed within the last `withinMs`. */
 export async function hasRecentFailedJob(db: Db, usn: string, withinMs: number): Promise<boolean> {
   const [recent] = await db
@@ -90,7 +109,7 @@ export async function hasRecentFailedJob(db: Db, usn: string, withinMs: number):
  * scope; one that is already running can't be, so `strictScope` callers get `ScrapeInProgressError`.
  */
 export async function enqueueScrapeJob(db: Db, input: EnqueueScrapeJobInput): Promise<string> {
-  await failStaleJobs(db, input.usn);
+  await Promise.all([failStaleJobs(db, input.usn), purgeFinishedJobs(db)]);
   const scope = input.scope ?? "full";
 
   try {

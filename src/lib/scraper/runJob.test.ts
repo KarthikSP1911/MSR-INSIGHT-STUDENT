@@ -4,7 +4,13 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { decryptText } from "@/lib/auth/crypto";
 import type { Db } from "@/lib/db/client";
 import { scrapeJobs, students } from "@/lib/db/schema";
-import { enqueueScrapeJob, hasRecentFailedJob, ScrapeInProgressError, STALE_JOB_MS } from "@/lib/scrapeJobs";
+import {
+  enqueueScrapeJob,
+  FINISHED_JOB_RETENTION_MS,
+  hasRecentFailedJob,
+  ScrapeInProgressError,
+  STALE_JOB_MS,
+} from "@/lib/scrapeJobs";
 import { createTestDb } from "@/test/pgliteDb";
 import { PortalAuthError, PortalUnavailableError } from "./portalHttpClient";
 import { claimAndRunJob } from "./runJob";
@@ -93,6 +99,27 @@ describe("enqueueScrapeJob", () => {
     expect(next).not.toBe(stuck);
     expect(await jobRow(db, stuck)).toMatchObject({ status: "failed", error: expect.stringContaining("interrupted") });
     expect((await jobRow(db, next)).status).toBe("pending");
+  });
+
+  it("purges finished jobs past the retention window and keeps recent and active ones", async () => {
+    const db = await setup();
+    const old = new Date(Date.now() - FINISHED_JOB_RETENTION_MS - 1000);
+    const recent = new Date(Date.now() - FINISHED_JOB_RETENTION_MS + 60_000);
+    const [oldDone, oldFailed, recentDone] = await db
+      .insert(scrapeJobs)
+      .values([
+        { usn: "1MS23IS051", dob: "19-11-2004", trigger: "login", status: "success", createdAt: old },
+        { usn: "1MS23IS051", dob: "19-11-2004", trigger: "login", status: "failed", createdAt: old },
+        { usn: "1MS23IS051", dob: "19-11-2004", trigger: "login", status: "success", createdAt: recent },
+      ])
+      .returning({ id: scrapeJobs.id });
+
+    const fresh = await enqueue(db);
+
+    expect(await jobRow(db, oldDone.id)).toBeUndefined();
+    expect(await jobRow(db, oldFailed.id)).toBeUndefined();
+    expect(await jobRow(db, recentDone.id)).toBeDefined();
+    expect((await jobRow(db, fresh)).status).toBe("pending");
   });
 
   it("leaves a recent running job alone", async () => {

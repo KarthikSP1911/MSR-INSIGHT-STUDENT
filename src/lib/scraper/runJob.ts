@@ -62,7 +62,11 @@ export async function claimAndRunJob(db: Db, jobId: string): Promise<void> {
     const plainPin = decryptText(job.encryptedPin);
     if (!plainPin) throw new Error("Failed to decrypt PIN for scrape job.");
 
+    // Each write is a round-trip to a database that bills by time awake, so a repeated message is skipped.
+    let lastProgress: string | null = null;
     const onProgress = async (msg: string) => {
+      if (msg === lastProgress) return;
+      lastProgress = msg;
       await db.update(scrapeJobs).set({ progress: msg }).where(eq(scrapeJobs.id, job.id));
     };
 
