@@ -23,7 +23,10 @@ import SettingsSection from "@/components/dashboard/sections/SettingsSection";
 import LoadingScreen from "@/components/dashboard/LoadingScreen";
 import BirthdayBanner from "@/components/dashboard/BirthdayBanner";
 import PortalUnavailableBanner from "@/components/dashboard/PortalUnavailableBanner";
+import ProfileUnavailable from "@/components/dashboard/ProfileUnavailable";
+import ServerUnavailableBanner from "@/components/dashboard/ServerUnavailableBanner";
 
+import { clearCacheOnLogout, readCachedProfileForSession, writeCachedProfile } from "@/lib/cache/profileCache";
 import type { Student } from "@/lib/db/schema";
 import { hasScrapedData, type Subject } from "@/lib/studentDetails";
 
@@ -50,6 +53,17 @@ const GRADE_POINTS: Record<string, number> = {
 };
 
 const PROFILE_QUERY_KEY = ["studentProfile"];
+
+/** How often to retry the server while the dashboard is showing the copy saved on this device. */
+const CACHED_PROFILE_RECHECK_MS = 60_000;
+
+/** The profile as the dashboard renders it: live from the server, or the copy saved on this device. */
+interface ProfileResult {
+  student: Student;
+  fromCache: boolean;
+  /** When the cached copy was saved; null for live data. */
+  savedAt: string | null;
+}
 
 export default function StudentDashboard() {
   const router = useRouter();
@@ -117,10 +131,11 @@ export default function StudentDashboard() {
   }, [showMobileProfileMenu]);
 
   const {
-    data: student,
+    data: profileResult,
     isLoading: profileLoading,
     error: profileError,
-  } = useQuery<Student>({
+    refetch: refetchProfile,
+  } = useQuery<ProfileResult>({
     queryKey: PROFILE_QUERY_KEY,
     // Only give up immediately on a definitive 401 (truly unauthenticated).
     // Allow up to 2 retries for transient 5xx / network errors so a cold-start
@@ -131,8 +146,23 @@ export default function StudentDashboard() {
       return failureCount < 2;
     },
     retryDelay: 1000,
-    queryFn: async () => {
-      const response = await fetch("/api/auth/profile");
+    // While showing the saved copy, keep checking so the live data takes over once the server is back.
+    refetchInterval: (query) => (query.state.data?.fromCache ? CACHED_PROFILE_RECHECK_MS : false),
+    queryFn: async (): Promise<ProfileResult> => {
+      // The saved copy is only used when the server (not the student's session) is the problem.
+      const fromSavedCopy = async (): Promise<ProfileResult | null> => {
+        const cached = await readCachedProfileForSession();
+        return cached ? { student: cached.student, fromCache: true, savedAt: cached.savedAt } : null;
+      };
+
+      let response: Response;
+      try {
+        response = await fetch("/api/auth/profile");
+      } catch (networkError) {
+        const saved = await fromSavedCopy();
+        if (saved) return saved;
+        throw networkError;
+      }
       // Tolerate a body that isn't JSON (e.g. a Next.js 500 HTML page on cold-start).
       const body: Record<string, unknown> = await response.json().catch(() => ({}));
 
@@ -140,23 +170,33 @@ export default function StudentDashboard() {
         // Definitively unauthenticated — clear the invalid/expired cookie so the login
         // page's own server-side check doesn't see it and bounce them straight back here.
         await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+        clearCacheOnLogout();
         throw { redirectTo: "/student-login", status: 401 };
       }
 
-      if (!response.ok || !body.success) {
-        // Transient server / network error — throw a plain Error so TanStack Query
-        // retries rather than treating this as a definitive auth failure.
-        throw new Error(
-          typeof body.message === "string"
-            ? body.message
-            : `Profile fetch failed (${response.status})`,
-        );
+      if (response.ok && body.success) {
+        const student = body.data as Student;
+        writeCachedProfile(student);
+        return { student, fromCache: false, savedAt: null };
       }
 
-      return body.data as Student;
+      if (response.status >= 500) {
+        const saved = await fromSavedCopy();
+        if (saved) return saved;
+      }
+
+      // Transient server / network error — throw a plain Error so TanStack Query
+      // retries rather than treating this as a definitive auth failure.
+      throw new Error(
+        typeof body.message === "string"
+          ? body.message
+          : `Profile fetch failed (${response.status})`,
+      );
     },
   });
   const loading = profileLoading;
+  const student = profileResult?.student;
+  const profileFromCache = profileResult?.fromCache ?? false;
 
   useEffect(() => {
     if (!profileError) return;
@@ -374,11 +414,18 @@ export default function StudentDashboard() {
     } catch (err) {
       console.error("[dashboard] logout request failed:", err);
     }
+    clearCacheOnLogout();
     router.push("/");
   };
 
   // `current` re-fetches attendance and CIE marks, `exam_history` re-fetches exam results.
   const requestSync = async (scope: "current" | "exam_history") => {
+    if (profileFromCache) {
+      // The server (and its saved PIN) is unreachable, so a background sync cannot run. Signing in again
+      // fetches straight from the portal.
+      router.push("/student-login?relogin=1");
+      return;
+    }
     const cooldownActive = scope === "exam_history" ? isExamCooldownActive : isCooldownActive;
     if (cooldownActive || updateStatus === "loading") return;
     setUpdateStatus("loading");
@@ -425,6 +472,11 @@ export default function StudentDashboard() {
   const handleUpdate = () => requestSync("current");
   const handleRefreshResults = () => requestSync("exam_history");
 
+  // No live data and no saved copy: say so instead of spinning forever. A 401 is already redirecting to login.
+  const profileRedirecting = Boolean((profileError as { redirectTo?: string } | null)?.redirectTo);
+  if (!student && !loading && profileError && !profileRedirecting) {
+    return <ProfileUnavailable onRetry={() => void refetchProfile()} />;
+  }
   if (loading || !student) return <LoadingScreen />;
 
   // First-time login: the profile row exists (created up front so the login form can hand
@@ -571,6 +623,7 @@ export default function StudentDashboard() {
       <main className="dashboard-main-content">
         <div className="content-wrapper">
           {isBirthday && <BirthdayBanner studentName={student?.name || "Student"} />}
+          {profileFromCache && <ServerUnavailableBanner savedAt={profileResult?.savedAt ?? null} />}
           {portalUnavailable && <PortalUnavailableBanner lastUpdated={detailsBlob.last_updated} />}
           {updateError && updateStatus === "error" && !portalUnavailable && (
             <div className="update-error-banner" role="alert">

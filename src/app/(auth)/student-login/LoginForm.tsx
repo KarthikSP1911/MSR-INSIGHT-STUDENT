@@ -4,6 +4,8 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
+import { readCachedProfileForSession, setRememberPreference } from "@/lib/cache/profileCache";
+
 interface DropdownRect {
   top: number;
   left: number;
@@ -129,14 +131,22 @@ export default function LoginForm() {
 
     (async () => {
       try {
-        const res = await fetch("/api/auth/profile");
-        const body = await res.json();
-        if (cancelled || !res.ok || !body.success) return;
+        // If the server is down, the copy saved on this device has the same USN and date of birth.
+        let profile: { usn?: string; dob?: string | null } | null = null;
+        try {
+          const res = await fetch("/api/auth/profile");
+          const body = await res.json();
+          if (res.ok && body.success) profile = body.data;
+        } catch {
+          // Fall through to the saved copy.
+        }
+        if (!profile) profile = (await readCachedProfileForSession())?.student ?? null;
+        if (cancelled || !profile) return;
 
-        const [d, m, y] = String(body.data?.dob || "").split("-");
+        const [d, m, y] = String(profile.dob || "").split("-");
         if (!d || !m || !y) return;
 
-        setUsn(body.data?.usn || "");
+        setUsn(profile.usn || "");
         setDay(String(parseInt(d, 10)));
         setMonth(months[parseInt(m, 10) - 1] || "");
         setYear(y);
@@ -213,6 +223,9 @@ export default function LoginForm() {
         setLoading(false);
         return;
       }
+
+      // Decides whether the dashboard's saved copy outlives this browser session (see profileCache.ts).
+      setRememberPreference(rememberMe);
 
       const jobId = result.data?.jobId as string | null | undefined;
       // Use a hard navigation (not router.push) so the browser fully commits the
