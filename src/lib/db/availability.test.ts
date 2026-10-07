@@ -13,6 +13,21 @@ describe("isDatabaseUnavailable", () => {
     ["our own timeout", new DatabaseTimeoutError(5000)],
     ["a refused connection", withCode("Error", "ECONNREFUSED")],
     ["a Neon HTTP-level failure with no SQLSTATE", withCode("NeonDbError", undefined)],
+    ["a Neon error with an empty code (as the live driver reports a rejected endpoint)", withCode("NeonDbError", "")],
+    ["a rejected login (class 28)", withCode("NeonDbError", "28P01")],
+    [
+      "the exact chain seen for an unreachable host",
+      Object.assign(new Error("Failed query: select 1"), {
+        cause: Object.assign(withCode("NeonDbError", undefined), {
+          message: "Error connecting to database: TypeError: fetch failed",
+          sourceError: Object.assign(new TypeError("fetch failed"), { cause: withCode("Error", "ENOTFOUND") }),
+        }),
+      }),
+    ],
+    [
+      "the exact chain seen when the endpoint answers with an error",
+      Object.assign(new Error("Failed query: select 1"), { cause: withCode("NeonDbError", "") }),
+    ],
     ["a connection exception (class 08)", withCode("NeonDbError", "08006")],
     ["insufficient resources (class 53)", withCode("NeonDbError", "53300")],
     ["an admin shutdown (class 57P)", withCode("NeonDbError", "57P01")],

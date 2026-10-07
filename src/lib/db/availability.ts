@@ -27,8 +27,11 @@ export function withDbTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** SQLSTATE classes meaning the server is unreachable or shutting down, not that the query was wrong. */
-const OUTAGE_SQLSTATE_PREFIXES = ["08", "53", "57P"];
+/**
+ * SQLSTATE classes meaning the server is unreachable, shutting down or refusing this app's login, not that
+ * the query was wrong.
+ */
+const OUTAGE_SQLSTATE_PREFIXES = ["08", "28", "53", "57P"];
 const OUTAGE_NETWORK_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "ETIMEDOUT", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT"]);
 const MAX_CAUSE_DEPTH = 5;
 
@@ -46,11 +49,14 @@ function isOutageLink(err: ErrorLike): boolean {
 
   const code = typeof err.code === "string" ? err.code : undefined;
   if (code && OUTAGE_NETWORK_CODES.has(code)) return true;
-  if (code && code.length === 5 && OUTAGE_SQLSTATE_PREFIXES.some((prefix) => code.startsWith(prefix))) return true;
+  const hasSqlState = code !== undefined && code.length === 5;
+  if (hasSqlState && OUTAGE_SQLSTATE_PREFIXES.some((prefix) => code.startsWith(prefix))) return true;
 
-  // The Neon driver reports failures of the HTTP request itself (as opposed to a Postgres error) as a
-  // NeonDbError with no SQLSTATE code, e.g. when the project's compute is suspended or the endpoint is down.
-  return err.name === "NeonDbError" && code === undefined;
+  // An error Postgres itself raised about a query always carries a 5-character SQLSTATE. The Neon driver
+  // reports everything else (an unreachable endpoint, a suspended compute, a rejected request) as a
+  // NeonDbError whose code is undefined or "" (observed against a live driver), and none of those can serve
+  // this app's queries.
+  return err.name === "NeonDbError" && !hasSqlState;
 }
 
 /**
