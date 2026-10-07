@@ -1,0 +1,70 @@
+name: Database backup
+
+# Nightly encrypted pg_dump of the Neon database, kept as a workflow artifact. See docs/BACKUP.md for setup
+# (two repository secrets) and the restore runbook.
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+env:
+  # pg_dump must be at least as new as the server. Match the Postgres version shown in the Neon console.
+  PG_MAJOR: "17"
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install the PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y "postgresql-client-${PG_MAJOR}"
+
+      - name: Dump the database
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKUP_DATABASE_URL}" ]; then
+            echo "::error::The BACKUP_DATABASE_URL secret is not set (see docs/BACKUP.md)."
+            exit 1
+          fi
+          "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_dump" --format=custom --no-owner --no-privileges \
+            --dbname="${BACKUP_DATABASE_URL}" --file=backup.dump
+          # A readable archive of a plausible size, not an empty file from a failed connection.
+          "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_restore" --list backup.dump > /dev/null
+          if [ "$(stat -c%s backup.dump)" -lt 1024 ]; then
+            echo "::error::The dump is suspiciously small."
+            exit 1
+          fi
+
+      - name: Encrypt the dump
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKUP_PASSPHRASE}" ]; then
+            echo "::error::The BACKUP_PASSPHRASE secret is not set (see docs/BACKUP.md)."
+            exit 1
+          fi
+          printf '%s' "${BACKUP_PASSPHRASE}" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --symmetric --cipher-algo AES256 --output "db-$(date -u +%Y%m%dT%H%M%SZ).dump.gpg" backup.dump
+          rm -f backup.dump
+
+      - name: Upload the encrypted backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup
+          path: db-*.dump.gpg
+          retention-days: 14
+          if-no-files-found: error
