@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
+import { currentYearFromUsn } from "@/lib/academicYear";
 import { normalizeAuthType } from "@/lib/auth/authType";
 import { decryptText } from "@/lib/auth/crypto";
 import { setSessionCookie } from "@/lib/auth/cookies";
@@ -113,7 +114,11 @@ export async function POST(request: NextRequest) {
 
     if (!existing) {
       // A second login for the same new USN (double-click, another tab) can insert first; that row is equivalent.
-      await db.insert(students).values({ usn, dob, currentYear: 0, details: {} }).onConflictDoNothing({ target: students.usn });
+      // The year comes from the USN's batch, so a brand-new student is counted in the right year before any scrape.
+      await db
+        .insert(students)
+        .values({ usn, dob, currentYear: currentYearFromUsn(usn) ?? 0, details: {} })
+        .onConflictDoNothing({ target: students.usn });
     } else if (existing.dob !== dob) {
       await db.update(students).set({ dob }).where(eq(students.usn, usn));
     }
