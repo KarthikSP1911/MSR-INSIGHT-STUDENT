@@ -319,3 +319,116 @@
   cursor: pointer;
   flex-shrink: 0;
 }
+
+/* ── Terms and Conditions ────────────────────────────────── */
+.terms-consent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.terms-consent-label {
+  margin: 0;
+}
+
+.terms-link {
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--accent-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.terms-link:hover {
+  color: var(--accent-hover);
+}
+
+.terms-link:focus-visible,
+.terms-close:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 3px;
+}
+
+.terms-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 32px));
+  /* The global reset zeroes margins, which drops the browser's auto-centering of a modal <dialog>. */
+  margin: auto;
+  padding: 0;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+}
+
+.terms-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.terms-dialog::backdrop {
+  background: rgba(10, 10, 10, 0.75);
+}
+
+.terms-header,
+.terms-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  flex-shrink: 0;
+}
+
+.terms-header {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.terms-footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.terms-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.terms-close {
+  display: flex;
+  padding: 4px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.terms-close:hover {
+  color: var(--text-primary);
+}
+
+.terms-content {
+  padding: 8px 20px;
+  overflow-y: auto;
+}
+
+.terms-content h3 {
+  margin: 16px 0 4px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.terms-content p {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
