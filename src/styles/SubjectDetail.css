@@ -537,6 +537,8 @@
   border-radius: 2px;
   outline: none;
   cursor: pointer;
+  /* A vertical swipe that starts on the slider scrolls the page instead of changing the target. */
+  touch-action: pan-y;
 }
 
 .sd-att-range-slider::-webkit-slider-thumb {
@@ -569,10 +571,12 @@
 /* Result cards */
 .sd-att-result {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   padding: 12px 14px;
   border-radius: var(--radius-md);
+  /* Room for the longest message, so changing the target does not resize the card and shove everything below it. */
+  min-height: 104px;
 }
 
 .sd-att-result-ok {
