@@ -27,6 +27,7 @@ semester in a `details` JSONB blob, exam results in their own columns.
 - [Installable app (PWA)](#installable-app-pwa)
 - [Auth & retry flow](#auth--retry-flow)
 - [If the database is down](#if-the-database-is-down)
+- [Pausing and resuming the site](#pausing-and-resuming-the-site)
 - [Known deviations from MSR-Insight](#known-deviations-from-msr-insight-deliberate-not-oversights)
 - [Deployment](#deployment)
 - [Git workflow](#git-workflow)
@@ -304,6 +305,19 @@ a cold start that times out, an outage). Three layers keep the app usable, and o
 - **Backup**: a nightly encrypted dump kept as a GitHub Actions artifact. See [docs/BACKUP.md](docs/BACKUP.md).
 
 Finished `scrape_jobs` older than 7 days are deleted on enqueue so the table stays small.
+
+## Pausing and resuming the site
+
+The site ships **paused**. Unless `SITE_SHUTDOWN` is exactly `false`, every request that could reach the
+college portal is refused and the login page shows a "Temporarily paused" overlay (`src/components/ShutdownOverlay.tsx`;
+the wording is the `COPY` constant at the top of that file).
+
+- `/api/*` answers `503` with `Retry-After`, and `/student/*` redirects to the login page (`src/proxy.ts`).
+  Still up: `/api/health`, the database-only yearly cron, and `/api/auth/logout`.
+- `loginToPortal`, `fetchDobSelectValues` and the shared `send()` helper in `src/lib/scraper/portalHttpClient.ts`
+  also refuse to make a request, so a route that forgets the proxy check still cannot reach the portal.
+- To resume once you have permission: set `SITE_SHUTDOWN=false` in Vercel (Production) and redeploy.
+  Locally, set it in `.env`. Tests set it to `false` in `vitest.config.ts`.
 
 ## Known deviations from MSR-Insight (deliberate, not oversights)
 
