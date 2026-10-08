@@ -1,8 +1,9 @@
 import * as cheerio from "cheerio";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   collectFormFields,
+  fetchDobSelectValues,
   findCsrfFieldName,
   loginToPortal,
   PortalAuthError,
@@ -180,6 +181,21 @@ describe("loginToPortal", () => {
   it("fails cleanly once the overall deadline has passed", async () => {
     const { fetchImpl } = fakePortal({ stage1: PIN_PAGE });
     await expect(loginToPortal(input, { fetchImpl, deadlineMs: -1 })).rejects.toThrow(/timed out/);
+  });
+});
+
+describe("site shutdown", () => {
+  afterEach(() => {
+    vi.stubEnv("SITE_SHUTDOWN", "false");
+  });
+
+  it("never sends a request to the portal while the site is paused", async () => {
+    vi.stubEnv("SITE_SHUTDOWN", "true");
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    await expect(loginToPortal(input, { fetchImpl })).rejects.toBeInstanceOf(PortalLoginUnsupportedError);
+    await expect(fetchDobSelectValues(input, fetchImpl)).rejects.toBeInstanceOf(PortalLoginUnsupportedError);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 

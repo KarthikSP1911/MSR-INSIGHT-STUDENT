@@ -8,10 +8,3 @@ export const SITE_SHUTDOWN_MESSAGE =
 export function isSiteShutdown(): boolean {
   return process.env.SITE_SHUTDOWN !== "false";
 }
-
-export class SiteShutdownError extends Error {
-  constructor() {
-    super(SITE_SHUTDOWN_MESSAGE);
-    this.name = "SiteShutdownError";
-  }
-}

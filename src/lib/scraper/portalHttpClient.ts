@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import type { CheerioAPI } from "cheerio";
 
 import { normalizeAuthType, type AuthType } from "@/lib/auth/authType";
+import { isSiteShutdown, SITE_SHUTDOWN_MESSAGE } from "@/lib/siteShutdown";
 
 /**
  * Logs into the college parent portal (https://parents.msrit.edu/newparents/) with plain HTTP —
@@ -53,6 +54,15 @@ export class PortalUnavailableError extends Error {
     super(message);
     this.name = "PortalUnavailableError";
   }
+}
+
+/**
+ * Every request to the college portal passes through here (login, the dob lookup, and the scrape that follows
+ * a login), so the shutdown cannot be bypassed by a route that forgets to check. Reported as "unsupported" so
+ * existing callers answer 503 instead of blaming the student's credentials or retrying.
+ */
+function assertPortalAccessAllowed(): void {
+  if (isSiteShutdown()) throw new PortalLoginUnsupportedError(SITE_SHUTDOWN_MESSAGE);
 }
 
 export interface PortalLoginInput {
@@ -122,6 +132,7 @@ interface PortalPage {
 
 /** One request, following redirects by hand so cookies set on a redirect response are kept. */
 async function send(t: Transport, method: "GET" | "POST", url: string, form?: Record<string, string>): Promise<PortalPage> {
+  assertPortalAccessAllowed();
   let currentMethod = method;
   let currentUrl = url;
   let body = form ? new URLSearchParams(form).toString() : undefined;
@@ -222,6 +233,7 @@ export async function fetchDobSelectValues(
   fetchImpl: typeof fetch = fetch,
   timeoutMs = 6000,
 ): Promise<DobSelectValues> {
+  assertPortalAccessAllowed();
   const padded: DobSelectValues = {
     dd: input.day.padStart(2, "0"),
     mm: input.month.padStart(2, "0"),
@@ -267,6 +279,7 @@ function formAction($form: ReturnType<CheerioAPI>, pageUrl: string): string {
 }
 
 export async function loginToPortal(input: PortalLoginInput, options: PortalLoginOptions = {}): Promise<PortalLoginResult> {
+  assertPortalAccessAllowed();
   const { fetchImpl = fetch, deadlineMs = DEFAULT_LOGIN_DEADLINE_MS, onProgress } = options;
   const t: Transport = { fetchImpl, jar: new CookieJar(), deadline: Date.now() + deadlineMs, requestCount: 0 };
   const tStart = Date.now();
