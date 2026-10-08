@@ -59,6 +59,50 @@ describe("parseCurrentSemester", () => {
     expect(se.marks).toBe(44);
   });
 
+  describe("finding the class line when the dashboard puts other text first", () => {
+    // What the portal started sending on 2026-10-07: an "Attendance" heading and a notice come before the details.
+    const withNoticeFirst = (classLine: string) => `
+<h2>Attendance</h2>
+<p>More than 85% of Attendance is must in each subject to write final exam.</p>
+<h3>Test Student</h3>${classLine}
+<table class="dash_od_row"><tbody>
+  <tr><td>23IS62</td><td>Software Engineering</td><td><a href="index.php?task=attendencelist&c=1">att</a></td></tr>
+</tbody></table>`;
+
+    it("skips a leading notice paragraph and reads the line that mentions the semester", () => {
+      const details = parseCurrentSemester(scraped({ dashboard: withNoticeFirst("<div><span>B.E-IS,  SEM 07,  SEC A</span></div>") }));
+
+      expect(details.class_details).toBe("B.E-IS,  SEM 07,  SEC A");
+      expect(details.current_year).toBe(4);
+    });
+
+    it("finds it in a later paragraph too", () => {
+      const details = parseCurrentSemester(scraped({ dashboard: withNoticeFirst("<p>B.E-IS, SEM 05, SEC C</p>") }));
+
+      expect(details.class_details).toBe("B.E-IS, SEM 05, SEC C");
+      expect(details.current_year).toBe(3);
+    });
+
+    it("does not mistake a container that merely holds the line for the line itself", () => {
+      const details = parseCurrentSemester(
+        scraped({ dashboard: withNoticeFirst("<section><h4>Class</h4><p>B.E-CI, SEM 07, SEC A</p></section>") }),
+      );
+
+      expect(details.class_details).toBe("B.E-CI, SEM 07, SEC A");
+    });
+
+    it("still reads the first paragraph when no line mentions a semester (the year then comes from the USN)", () => {
+      const details = parseCurrentSemester(scraped({ dashboard: withNoticeFirst("") }));
+
+      expect(details.class_details).toMatch(/85% of Attendance/);
+      expect(details.current_year).toBe(0);
+    });
+
+    it("keeps working on the original layout", () => {
+      expect(parseCurrentSemester(scraped()).class_details).toBe("B.E. INFORMATION SCIENCE SEM 06");
+    });
+  });
+
   it("does not carry exam history or CGPA, which now live in their own columns", () => {
     const details = parseCurrentSemester(scraped({ exams: EXAMS }));
     expect(details).not.toHaveProperty("exam_history");
