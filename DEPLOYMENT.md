@@ -145,14 +145,34 @@ select refresh_student_years();   -- returns how many students changed; safe to 
    | `DATABASE_URL` | Neon Postgres connection string (pooled variant). |
    | `JWT_SECRET` | Long random secret — `openssl rand -base64 32`. |
    | `ENCRYPTION_SECRET` | Different long random secret — `openssl rand -base64 32`. |
+   | `CRON_SECRET` | A third long random secret. Protects the yearly student-year job (below); the job refuses to run without it. |
 
-   That is all. There is no browser to configure and no token to provide.
+   There is no browser to configure and no scraping token to provide.
 
 3. Trigger the deploy (push to the connected branch, or "Deploy" in the dashboard).
 
 4. Verify: build succeeds, `/student-login` loads at the `*.vercel.app` URL.
 
-No `vercel.json` is required.
+`vercel.json` holds one setting, the yearly job described next.
+
+### The yearly student-year job
+
+`vercel.json` runs `GET /api/cron/refresh-student-years` at 02:00 UTC on **1 to 7 August** every year, right after
+the academic year starts. It runs `refresh_student_years()` (see [The student year](#the-student-year-0012-0013)),
+which moves every student to the year their USN's batch implies, seniors (year 5) included, and so keeps the
+per-year counts in `app_stats` right with nobody running anything. Students who sign in are updated by their own
+sync anyway; this covers the rest.
+
+- Vercel sends `Authorization: Bearer $CRON_SECRET` itself once `CRON_SECRET` is set, so **set that variable**.
+  Without it the route answers 503 and does nothing, and with a wrong value it answers 401, so it can never be run
+  by the public.
+- It is scheduled for seven days, not one, on purpose: it only changes students whose year differs, so repeating it
+  is harmless, and a run that fails (say the database is down that day) is retried the next day.
+- Hobby plans allow cron jobs once a day at most, which fits. It wakes the database for a moment on those seven days
+  only.
+- Check it in the Vercel dashboard (Project → Cron Jobs), or run it by hand (replace the values):
+  `curl -H "Authorization: Bearer <CRON_SECRET>" https://<your-domain>/api/cron/refresh-student-years` returns
+  `{"success":true,"changed":<how many students moved>}`.
 
 ## Part 3 — How syncing behaves
 

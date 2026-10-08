@@ -160,6 +160,7 @@ cookie; there is no bearer-token/header auth.
 | `GET` | `/api/report/student/[usn]` | session (self only) | Fetch a student's report; triggers a scrape if none exists yet. |
 | `POST` | `/api/report/update` | session (self only) | Manual refresh. Body `{ usn, scope? }` with `scope` `current` (default) or `exam_history`; enforces a 1-minute cooldown per scope, enqueues a job and runs it after the response. |
 | `GET` | `/api/scrape-jobs/[id]` | session | Poll job `status`/`error`/`resultSummary`, used by `useScrapeJobPolling`. |
+| `GET` | `/api/cron/refresh-student-years` | `Bearer CRON_SECRET` | Yearly job run by Vercel Cron (`vercel.json`, 1–7 August): moves every student to the year their USN's batch implies. 503 if `CRON_SECRET` is unset, 401 if wrong. |
 
 ## Project layout
 
@@ -207,6 +208,7 @@ Fill in `.env`:
 | `DATABASE_URL` | Neon Postgres connection string. |
 | `JWT_SECRET` | Signs the student session cookie. |
 | `ENCRYPTION_SECRET` | Derives the AES-256-GCM key used to encrypt the stored portal PIN at rest — keep separate from `JWT_SECRET`. |
+| `CRON_SECRET` | Protects `/api/cron/refresh-student-years`, the job (`vercel.json`) that moves every student to the right year each 1 August. The route refuses to run without it. |
 
 Once `DATABASE_URL` is set:
 
