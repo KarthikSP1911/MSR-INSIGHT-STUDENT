@@ -13,6 +13,9 @@ export default async function StudentLoginPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  // Awaited first so the page always renders per request: without it the paused branch would be prerendered
+  // at build time and the flag could not be read at runtime.
+  const params = await searchParams;
   // Paused: show the overlay instead of bouncing a signed-in student to the dashboard, which the proxy
   // sends straight back here. `inert` keeps the form behind it from being focused, clicked or autofilled.
   if (isSiteShutdown()) {
@@ -29,7 +32,6 @@ export default async function StudentLoginPage({
   }
 
   const usn = await getCurrentUsn();
-  const params = await searchParams;
   // ?relogin=1 is the one case an already-authenticated visit to this page is intentional —
   // the dashboard sends a signed-in user with no saved portal PIN here to re-verify it
   // through this same secondary-auth form, so the usual "already logged in" bounce needs to
