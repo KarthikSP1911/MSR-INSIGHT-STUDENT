@@ -13,7 +13,7 @@
 -- "scrape_jobs" (at most a week's worth, so counting them is cheap). The "app_stats_summary" view adds them up.
 
 -- Adds each delta to its counter, creating the counter on first use. The value is clamped at 0 when updating.
-CREATE FUNCTION "app_stats_bump"("keys" text[], "deltas" bigint[]) RETURNS void
+CREATE OR REPLACE FUNCTION "app_stats_bump"("keys" text[], "deltas" bigint[]) RETURNS void
 LANGUAGE sql
 AS $$
   INSERT INTO "app_stats" ("key", "value", "updated_at")
@@ -25,7 +25,7 @@ AS $$
         "updated_at" = now();
 $$;--> statement-breakpoint
 
-CREATE FUNCTION "students_stats_trigger"() RETURNS trigger
+CREATE OR REPLACE FUNCTION "students_stats_trigger"() RETURNS trigger
 LANGUAGE plpgsql
 SET lock_timeout = '250ms'
 AS $$
@@ -47,7 +47,7 @@ $$;--> statement-breakpoint
 
 -- Statement-level: runs once per DELETE statement and reads the deleted rows from a transition table, so purging
 -- a thousand jobs is one counter write, and a DELETE that removes nothing writes nothing.
-CREATE FUNCTION "scrape_jobs_purged_trigger"() RETURNS trigger
+CREATE OR REPLACE FUNCTION "scrape_jobs_purged_trigger"() RETURNS trigger
 LANGUAGE plpgsql
 SET lock_timeout = '250ms'
 AS $$
@@ -68,7 +68,7 @@ $$;--> statement-breakpoint
 
 -- Recomputes the student counters from the table, for repairing drift. It cannot rebuild "scrape_jobs_purged":
 -- the jobs it counts no longer exist.
-CREATE FUNCTION "refresh_app_stats"() RETURNS void
+CREATE OR REPLACE FUNCTION "refresh_app_stats"() RETURNS void
 LANGUAGE sql
 AS $$
   INSERT INTO "app_stats" ("key", "value", "updated_at")
@@ -87,19 +87,23 @@ AS $$
     AND "key" NOT IN (SELECT 'students_year_' || "current_year" FROM "students");
 $$;--> statement-breakpoint
 
+DROP TRIGGER IF EXISTS "students_stats_insert" ON "students";--> statement-breakpoint
 CREATE TRIGGER "students_stats_insert" AFTER INSERT ON "students"
   FOR EACH ROW EXECUTE FUNCTION "students_stats_trigger"();--> statement-breakpoint
+DROP TRIGGER IF EXISTS "students_stats_delete" ON "students";--> statement-breakpoint
 CREATE TRIGGER "students_stats_delete" AFTER DELETE ON "students"
   FOR EACH ROW EXECUTE FUNCTION "students_stats_trigger"();--> statement-breakpoint
+DROP TRIGGER IF EXISTS "students_stats_year_change" ON "students";--> statement-breakpoint
 CREATE TRIGGER "students_stats_year_change" AFTER UPDATE OF "current_year" ON "students"
   FOR EACH ROW WHEN (OLD."current_year" IS DISTINCT FROM NEW."current_year")
   EXECUTE FUNCTION "students_stats_trigger"();--> statement-breakpoint
+DROP TRIGGER IF EXISTS "scrape_jobs_stats_delete" ON "scrape_jobs";--> statement-breakpoint
 CREATE TRIGGER "scrape_jobs_stats_delete" AFTER DELETE ON "scrape_jobs"
   REFERENCING OLD TABLE AS "deleted_jobs"
   FOR EACH STATEMENT EXECUTE FUNCTION "scrape_jobs_purged_trigger"();--> statement-breakpoint
 
 -- Every counter at a glance, with the job total worked out: purged + still stored.
-CREATE VIEW "app_stats_summary" AS
+CREATE OR REPLACE VIEW "app_stats_summary" AS
 SELECT "key", "value" FROM "app_stats" WHERE "key" <> 'scrape_jobs_purged'
 UNION ALL
 SELECT 'scrape_jobs_total',
