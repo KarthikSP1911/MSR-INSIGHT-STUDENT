@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { currentYearFromUsn } from "@/lib/academicYear";
 import { describeDegradedLoginFailure, loginWithoutDatabase } from "./degradedLogin";
 import { getCompleteStudentData, type CompleteStudentData } from "./portalScraper";
 import { PortalAuthError, PortalLoginUnsupportedError, PortalUnavailableError } from "./portalHttpClient";
@@ -33,11 +34,24 @@ describe("loginWithoutDatabase", () => {
 
     expect(portal).toHaveBeenCalledTimes(1);
     expect(portal).toHaveBeenCalledWith("1MS23IS051", "19", "11", "2004", "Mother's Mobile", "1234", "full", undefined);
-    expect(student).toMatchObject({ usn: "1MS23IS051", name: "Asha Rao", dob: "19-11-2004", authType: "Mother's Mobile", cgpa: "8.52", currentYear: 3 });
+    // The year comes from the USN's batch (not the page's "SEM 06"), so it follows the academic year.
+    expect(student).toMatchObject({ usn: "1MS23IS051", name: "Asha Rao", dob: "19-11-2004", authType: "Mother's Mobile", cgpa: "8.52", currentYear: currentYearFromUsn("1MS23IS051") });
     expect(student.details.subjects).toHaveLength(1);
     expect(student.examHistoryUpdatedAt).toBeInstanceOf(Date);
     expect(student).not.toHaveProperty("encryptedPin");
     expect(JSON.stringify(student)).not.toContain("1234");
+  });
+
+  it("still gets the right USN and year when the portal's page puts 'Attendance' and a notice first", async () => {
+    const newLayout = `<h2>Attendance</h2><p>More than 85% of Attendance is must in each subject to write final exam.</p>
+      <h3>Asha Rao</h3>${DASHBOARD.slice(DASHBOARD.indexOf("<table"))}`;
+    portal.mockResolvedValue({ ...scraped(), data: { ...scraped().data, dashboard: newLayout } });
+
+    const student = await loginWithoutDatabase({ usn: "1MS23IS051", dob: "19-11-2004", authType: "mother", pin: "1234" });
+
+    expect(student.details.usn).toBe("1MS23IS051");
+    expect(student.currentYear).toBe(currentYearFromUsn("1MS23IS051"));
+    expect(student.currentYear).toBeGreaterThanOrEqual(1);
   });
 
   it("propagates a portal rejection so the route can report it", async () => {
