@@ -4,6 +4,13 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
+import FeedbackButton from "@/components/feedback/FeedbackButton";
+import { readCachedProfileForSession, setRememberPreference, writeCachedProfile } from "@/lib/cache/profileCache";
+import type { Student } from "@/lib/db/schema";
+
+/** Sent by the dashboard when the database is back but has no record of a student who signed in while it was down. */
+const SERVER_BACK_NOTICE = "Our server is back. Please verify once more so your data is saved to your account.";
+
 interface DropdownRect {
   top: number;
   left: number;
@@ -102,13 +109,14 @@ export default function LoginForm() {
   const [error, setError] = useState(() => searchParams.get("error") || "");
   // Reopen the PIN section immediately when bounced back with an error, so the
   // student can correct and resubmit without an extra click through the toggle.
-  const [showSecondaryAuth, setShowSecondaryAuth] = useState(() => Boolean(searchParams.get("error")));
+  const serverBack = searchParams.get("notice") === "server-back";
+  const [showSecondaryAuth, setShowSecondaryAuth] = useState(() => Boolean(searchParams.get("error")) || serverBack);
   const [authType, setAuthType] = useState("Father's Mobile");
   const [last4Digits, setLast4Digits] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
 
   const [loading, setLoading] = useState(false);
-  const [infoMsg, setInfoMsg] = useState("");
+  const [infoMsg, setInfoMsg] = useState(() => (serverBack ? SERVER_BACK_NOTICE : ""));
 
   const days = Array.from({ length: 31 }, (_, i) => String(i + 1));
   const months = [
@@ -129,14 +137,22 @@ export default function LoginForm() {
 
     (async () => {
       try {
-        const res = await fetch("/api/auth/profile");
-        const body = await res.json();
-        if (cancelled || !res.ok || !body.success) return;
+        // If the server is down, the copy saved on this device has the same USN and date of birth.
+        let profile: { usn?: string; dob?: string | null } | null = null;
+        try {
+          const res = await fetch("/api/auth/profile");
+          const body = await res.json();
+          if (res.ok && body.success) profile = body.data;
+        } catch {
+          // Fall through to the saved copy.
+        }
+        if (!profile) profile = (await readCachedProfileForSession())?.student ?? null;
+        if (cancelled || !profile) return;
 
-        const [d, m, y] = String(body.data?.dob || "").split("-");
+        const [d, m, y] = String(profile.dob || "").split("-");
         if (!d || !m || !y) return;
 
-        setUsn(body.data?.usn || "");
+        setUsn(profile.usn || "");
         setDay(String(parseInt(d, 10)));
         setMonth(months[parseInt(m, 10) - 1] || "");
         setYear(y);
@@ -202,7 +218,9 @@ export default function LoginForm() {
       if (result.requiresSecondaryAuth) {
         setShowSecondaryAuth(true);
         setInfoMsg(
-          "Portal verification required for first-time login. Please select your verification method and enter the last 4 digits.",
+          result.databaseOffline && result.message
+            ? result.message
+            : "Portal verification required for first-time login. Please select your verification method and enter the last 4 digits.",
         );
         setLoading(false);
         return;
@@ -213,6 +231,11 @@ export default function LoginForm() {
         setLoading(false);
         return;
       }
+
+      // Decides whether the dashboard's saved copy outlives this browser session (see profileCache.ts).
+      setRememberPreference(rememberMe);
+      // A database-free sign-in returns the data itself (nothing was saved server-side), so keep it on this device.
+      if (result.degraded && result.data?.student) writeCachedProfile(result.data.student as Student);
 
       const jobId = result.data?.jobId as string | null | undefined;
       // Use a hard navigation (not router.push) so the browser fully commits the
@@ -317,6 +340,7 @@ export default function LoginForm() {
           </button>
         </form>
       </div>
+      <FeedbackButton />
     </div>
   );
 }

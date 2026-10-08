@@ -26,6 +26,7 @@ semester in a `details` JSONB blob, exam results in their own columns.
 - [Available scripts](#available-scripts)
 - [Installable app (PWA)](#installable-app-pwa)
 - [Auth & retry flow](#auth--retry-flow)
+- [If the database is down](#if-the-database-is-down)
 - [Known deviations from MSR-Insight](#known-deviations-from-msr-insight-deliberate-not-oversights)
 - [Deployment](#deployment)
 - [Git workflow](#git-workflow)
@@ -58,6 +59,9 @@ semester in a `details` JSONB blob, exam results in their own columns.
   accounts with no stored PIN yet.
 - An **Analytics** tab exists in code (`AnalyticsSection.tsx`) but is currently disabled in
   the nav — not wired up in the shipped UI yet.
+- **Keeps working if the database is down** (Neon's free tier can suspend): the dashboard shows the copy of
+  the student's profile saved on their device, and students can still sign in through the portal directly.
+  See [If the database is down](#if-the-database-is-down).
 - **Out of scope by design**: no proctor login/dashboard, no Placements data (the portal's
   Placement section is deliberately never scraped — see `schema.ts`), no PDF report / AI
   remarks / email-WhatsApp-to-parents.
@@ -136,8 +140,11 @@ cookie; there is no bearer-token/header auth.
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | `POST` | `/api/auth/login` | — | USN+DOB login. Returns `requiresSecondaryAuth` if no saved PIN exists yet; otherwise mints a session and, when data is stale, queues a background refresh (returns its `jobId`). |
-| `GET` | `/api/auth/profile` | session | Current student's profile + `details`, with encrypted fields stripped. |
+| `GET` | `/api/auth/profile` | session | Current student's profile + `details`, with encrypted fields stripped. Answers `503 { code: "database_unavailable" }` when the database cannot be reached. |
+| `GET` | `/api/auth/session` | session | The signed-in USN, read from the cookie alone (no database). Lets the client find the right saved copy during an outage. |
 | `POST` | `/api/auth/logout` | session | Clears the session cookie. |
+| `POST` | `/api/portal/open` | session | "Official Site" button: a transient page that submits the portal's first login form. |
+| `GET` | `/api/health` | — | `200` when the database answers `select 1`, `503` otherwise. No student data. |
 | `GET` | `/api/report/student/[usn]` | session (self only) | Fetch a student's report; triggers a scrape if none exists yet. |
 | `POST` | `/api/report/update` | session (self only) | Manual refresh. Body `{ usn, scope? }` with `scope` `current` (default) or `exam_history`; enforces a 1-minute cooldown per scope, enqueues a job and runs it after the response. |
 | `GET` | `/api/scrape-jobs/[id]` | session | Poll job `status`/`error`/`resultSummary`, used by `useScrapeJobPolling`. |
@@ -150,7 +157,9 @@ src/
     (auth)/student-login/           # LoginForm (USN+DOB + secondary-auth/PIN flow)
     (dashboard)/student/dashboard/  # dashboard page + SubjectDetail drill-down
     api/
-      auth/{login,register,logout,profile}/
+      auth/{login,logout,profile,session}/
+      portal/open/                  # "Official Site" button
+      health/                       # uptime-monitor endpoint
       report/{student/[usn],update}/
       scrape-jobs/[id]/             # job status polling
     error.tsx, global-error.tsx     # App Router error boundaries
@@ -225,7 +234,7 @@ npm run db:studio     # Drizzle Studio (DB browser)
 ## Installable app (PWA)
 
 - **Manifest** (`src/app/manifest.ts`): `display: standalone`, with 192px, 512px and maskable icons rendered at build time by `src/app/icons/[name]/route.tsx`.
-- **Service worker** (`public/sw.js`): only shows `public/offline.html` when a page navigation fails. It never caches API responses or dashboard pages, so student data is never stored or served stale. Registered in production only (`ServiceWorkerRegistration`), served with `no-cache` headers (`next.config.ts`).
+- **Service worker** (`public/sw.js`): only shows `public/offline.html` when a page navigation fails. It never caches API responses or dashboard pages, so student data is never stored or served stale by the worker. (The separate on-device profile copy described in [If the database is down](#if-the-database-is-down) lives in `localStorage`/`sessionStorage`, not in the service worker.) Registered in production only (`ServiceWorkerRegistration`), served with `no-cache` headers (`next.config.ts`).
 - **Install prompt** (`src/components/pwa/InstallPrompt.tsx`, mounted by `src/app/(dashboard)/layout.tsx` so it exists only for signed-in pages): appears about 4 seconds after the dashboard is visible (it waits for the loading splash to clear), at most once per 24 hours (`LAST_SHOWN` is stored in `localStorage` when it appears, so reloads never nag), never after the app is installed. The rules live in `src/lib/pwa/installPrompt.ts` and are unit-tested.
 - **"Install App" button** (`InstallAppButton`, beside "Update Dashboard" on Current Semester): always available, unlike the once-a-day prompt. It opens the browser's install dialog (Chrome/Edge/Android), or the Add to Home Screen steps on iOS. It is hidden inside the installed app, once the app is installed (Chromium only offers installation while it isn't), and in browsers that can't install it. The install event is captured once by `InstallProvider` and shared by the button and the prompt. It is deliberately plain (no glow or hover lift) and sits at the right edge on phones.
 - **Trying it locally**: the worker and prompt need a production build, `npm run build && npm start`, then open `http://localhost:3000` (localhost counts as a secure context). Clear the `msr-install-prompt-last-shown` key in DevTools → Application → Local Storage to see the prompt again.
@@ -250,6 +259,30 @@ npm run db:studio     # Drizzle Studio (DB browser)
 - **Not stuck forever**: `useScrapeJobPolling` retries transient fetch failures (common on
   mobile), refetches on tab focus, and has a 6-minute client-side backstop (`MAX_POLL_MS`)
   that surfaces a timeout error even if the scrape route itself never responds.
+
+## If the database is down
+
+The database is Neon's free tier, which can be unavailable for a long stretch (monthly compute quota used up,
+a cold start that times out, an outage). Three layers keep the app usable, and one backs the data up:
+
+- **Saved copy on the device** (`src/lib/cache/profileCache.ts`). Each successful profile load is saved in the
+  browser (never the PIN, never any credential). If the profile route fails with a network error or a 5xx, the
+  dashboard renders that copy with a banner and rechecks the server every minute, switching back to live data on
+  its own. With **Remember me** ticked the copy lives in `localStorage` and survives logout; otherwise it is in
+  `sessionStorage` and every copy is wiped on logout. A copy is only shown to the session whose USN matches
+  (found through `/api/auth/session`, which never touches the database) and expires after 90 days. This is a
+  per-device cache, **not a backup**: it cannot help another device or restore anyone's data, and the server
+  never accepts it back.
+- **Sign-in without the database** (`src/lib/scraper/degradedLogin.ts`). When the login route's first lookup
+  fails or takes over 6 seconds, it asks for the PIN, proves USN + date of birth + PIN against the college portal,
+  scrapes in that same login, signs the session cookie and returns the data. Nothing is written and the PIN is
+  discarded, so the PIN must be typed each time. When the database returns and has no row for that student, the
+  dashboard sends them through a normal sign-in once, which creates it.
+- **Updating** while on the saved copy sends the student to the relogin form (a background sync needs the
+  database for the saved PIN).
+- **Backup**: a nightly encrypted dump kept as a GitHub Actions artifact. See [docs/BACKUP.md](docs/BACKUP.md).
+
+Finished `scrape_jobs` older than 7 days are deleted on enqueue so the table stays small.
 
 ## Known deviations from MSR-Insight (deliberate, not oversights)
 

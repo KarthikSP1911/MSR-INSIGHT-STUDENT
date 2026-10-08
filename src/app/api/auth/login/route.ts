@@ -6,16 +6,66 @@ import { decryptText } from "@/lib/auth/crypto";
 import { setSessionCookie } from "@/lib/auth/cookies";
 import { signStudentToken } from "@/lib/auth/jwt";
 import { verifyPortalLogin } from "@/lib/auth/verifyPortalLogin";
+import { isDatabaseUnavailable, withDbTimeout } from "@/lib/db/availability";
 import { getDb } from "@/lib/db/client";
 import { students } from "@/lib/db/schema";
 import { FAILED_SYNC_BACKOFF_MS, scopeForStaleness } from "@/lib/scrapePolicy";
 import { enqueueScrapeJob, hasRecentFailedJob } from "@/lib/scrapeJobs";
+import { describeDegradedLoginFailure, loginWithoutDatabase } from "@/lib/scraper/degradedLogin";
 import { runJobAfterResponse } from "@/lib/scraper/scheduleJob";
 import { hasScrapedData } from "@/lib/studentDetails";
 import { loginSchema } from "@/lib/validation/auth";
 
 /** The background scrape runs inside this route's budget via `after()`; 60s is the Vercel Hobby maximum. */
 export const maxDuration = 60;
+
+/**
+ * How long the first lookup may take before the database counts as down. Covers a Neon cold start but, added to
+ * the 45s database-free scrape that follows, still fits inside `maxDuration`.
+ */
+const LOGIN_DB_TIMEOUT_MS = 6_000;
+
+interface DegradedLoginRequest {
+  usn: string;
+  dob: string;
+  authType?: string;
+  last4Digits?: string;
+  rememberMe?: boolean;
+}
+
+/**
+ * Sign-in while our database is unreachable. The portal proves the USN, date of birth and PIN and supplies the
+ * data, so the PIN has to be typed every time (the saved copy is in the database) and nothing is stored.
+ */
+async function loginWhileDatabaseIsDown({ usn, dob, authType, last4Digits, rememberMe }: DegradedLoginRequest) {
+  if (!authType || !last4Digits) {
+    return NextResponse.json({
+      success: false,
+      requiresSecondaryAuth: true,
+      databaseOffline: true,
+      message:
+        "Our database is offline right now. Enter your portal PIN to sign in and load your data straight from the college portal.",
+    });
+  }
+
+  try {
+    // Signed before the scrape so a missing JWT_SECRET fails fast rather than after a 45s portal round-trip.
+    const token = await signStudentToken(usn);
+    const student = await loginWithoutDatabase({ usn, dob, authType, pin: last4Digits });
+    await setSessionCookie(token, Boolean(rememberMe));
+
+    return NextResponse.json({
+      success: true,
+      degraded: true,
+      message: "Login successful — our database is offline, so this data comes straight from the college portal",
+      data: { usn, jobId: null, student },
+    });
+  } catch (err) {
+    console.error(`[api/auth/login] database-free login failed for USN ${usn}:`, err);
+    const failure = describeDegradedLoginFailure(err);
+    return NextResponse.json({ success: false, message: failure.message }, { status: failure.status });
+  }
+}
 
 /**
  * Student login: USN + DOB, with MSR-Insight's secondary-auth/PIN capture
@@ -44,7 +94,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const db = getDb();
-    const [existing] = await db.select().from(students).where(eq(students.usn, usn));
+    const [existing] = await withDbTimeout(
+      db.select().from(students).where(eq(students.usn, usn)),
+      LOGIN_DB_TIMEOUT_MS,
+    );
 
     // Only reject on a DOB mismatch once we have confirmed (successfully scraped) data to
     // trust — an existing row with no scraped data is just an unverified placeholder.
@@ -141,6 +194,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error(`[api/auth/login] failed for USN ${usn}:`, err);
+    if (isDatabaseUnavailable(err)) {
+      return loginWhileDatabaseIsDown({ usn, dob, authType, last4Digits, rememberMe });
+    }
     return NextResponse.json({ success: false, message: "Login failed. Please try again." }, { status: 500 });
   }
 }
