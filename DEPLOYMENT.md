@@ -49,13 +49,14 @@ deploy going live; do the two back to back. Take a Neon branch/backup first if y
 point.
 
 `npm run db:migrate` applies **every migration that is still pending**, not only the newest. Check what your
-database has already had before you run it (the repo has 12 migrations, `0000` to `0011`):
+database has already had before you run it (the repo has 13 migrations, `0000` to `0012`):
 
 ```sql
 select id, created_at from drizzle.__drizzle_migrations order by id;   -- one row per migration applied
 ```
 
-If that shows fewer than 12 rows, the missing ones run too, in order, including the irreversible `0008` above.
+If that shows fewer than 13 rows, the missing ones run too, in order. (Production already has `0000` to `0011`,
+so a plain `npm run db:migrate` now applies only `0012` below.)
 
 ### The stats table (`0010`, `0011`) loses nothing
 
@@ -98,6 +99,29 @@ drop function if exists students_stats_trigger(), scrape_jobs_purged_trigger(), 
 drop table if exists app_stats;
 -- so a later `npm run db:migrate` applies them again:
 delete from drizzle.__drizzle_migrations where id in (select id from drizzle.__drizzle_migrations order by id desc limit 2);
+```
+
+That rollback assumes `0010`/`0011` are the newest migrations. If `0012` has also been applied, use `limit 3` and
+also `drop function if exists year_from_usn(text, timestamptz), refresh_student_years(timestamptz);` (the years it
+set stay as they are).
+
+### The student year (`0012`)
+
+A student's `current_year` is worked out from the batch in their USN (`1MS23IS051` is the 2023 batch), not read
+from the portal's page, whose layout change on 2026-10-07 had reset the year to 0 on every sync. The academic year
+starts on **1 August**; year = academic year − batch + 1, lateral-entry serials (`4xx`) are + 2, and the result is
+held to 1–4 (`src/lib/academicYear.ts`; the SQL twin `year_from_usn()` is tested to agree with it).
+
+`0012` sets the year for students already stored. It writes **only the `current_year` column**: not `updated_at`,
+nor any other column, and it only touches rows whose year actually differs.
+
+**Deploy the code before (or with) this migration.** The deployed app still derives the year from the page, so it
+would write 0 back on each student's next sync until the new code is live.
+
+Each August, move students who have not signed in up a year (a sync does it for the ones who do):
+
+```sql
+select refresh_student_years();   -- returns how many students changed; safe to repeat
 ```
 
 ## Part 2 — Vercel: deploy the Next.js app
