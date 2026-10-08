@@ -57,6 +57,9 @@ const PROFILE_QUERY_KEY = ["studentProfile"];
 /** How often to retry the server while the dashboard is showing the copy saved on this device. */
 const CACHED_PROFILE_RECHECK_MS = 60_000;
 
+/** How often to retry while the "couldn't load your dashboard" screen is up, so it clears by itself. */
+const PROFILE_ERROR_RECHECK_MS = 30_000;
+
 /** The profile as the dashboard renders it: live from the server, or the copy saved on this device. */
 interface ProfileResult {
   student: Student;
@@ -134,6 +137,8 @@ export default function StudentDashboard() {
     data: profileResult,
     isLoading: profileLoading,
     error: profileError,
+    isFetching: profileFetching,
+    errorUpdateCount: profileFailureCount,
     refetch: refetchProfile,
   } = useQuery<ProfileResult>({
     queryKey: PROFILE_QUERY_KEY,
@@ -146,8 +151,13 @@ export default function StudentDashboard() {
       return failureCount < 2;
     },
     retryDelay: 1000,
-    // While showing the saved copy, keep checking so the live data takes over once the server is back.
-    refetchInterval: (query) => (query.state.data?.fromCache ? CACHED_PROFILE_RECHECK_MS : false),
+    // While showing the saved copy, or the "couldn't load" screen, keep checking so live data takes over once
+    // the server is back. A failure that is redirecting to the login page (expired session) is not rechecked.
+    refetchInterval: (query) => {
+      if (query.state.data?.fromCache) return CACHED_PROFILE_RECHECK_MS;
+      const redirecting = Boolean((query.state.error as { redirectTo?: string } | null)?.redirectTo);
+      return query.state.status === "error" && !redirecting ? PROFILE_ERROR_RECHECK_MS : false;
+    },
     queryFn: async (): Promise<ProfileResult> => {
       // The saved copy is only used when the server (not the student's session) is the problem.
       const fromSavedCopy = async (): Promise<ProfileResult | null> => {
@@ -480,9 +490,11 @@ export default function StudentDashboard() {
   const handleRefreshResults = () => requestSync("exam_history");
 
   // No live data and no saved copy: say so instead of spinning forever. A 401 is already redirecting to login.
+  // `profileFailureCount` (not `profileError`) decides this: a refetch clears the error and goes back to
+  // "loading", which would flash the splash over the screen and hide its "Checking…" state.
   const profileRedirecting = Boolean((profileError as { redirectTo?: string } | null)?.redirectTo);
-  if (!student && !loading && profileError && !profileRedirecting) {
-    return <ProfileUnavailable onRetry={() => void refetchProfile()} />;
+  if (!student && profileFailureCount > 0 && !profileRedirecting) {
+    return <ProfileUnavailable onRetry={() => void refetchProfile()} isRetrying={profileFetching} />;
   }
   if (loading || !student) return <LoadingScreen />;
 
