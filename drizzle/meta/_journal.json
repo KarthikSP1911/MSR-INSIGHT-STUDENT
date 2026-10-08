@@ -85,6 +85,13 @@
       "when": 1791398749057,
       "tag": "0011_app_stats_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791438496147,
+      "tag": "0012_backfill_current_year_from_usn",
+      "breakpoints": true
     }
   ]
 }
