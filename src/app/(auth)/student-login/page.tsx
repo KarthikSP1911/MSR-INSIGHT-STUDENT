@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
+import ShutdownOverlay from "@/components/ShutdownOverlay";
 import { getCurrentUsn } from "@/lib/auth/session";
+import { isSiteShutdown } from "@/lib/siteShutdown";
 import "@/styles/StudentLogin.css";
 import LoginForm from "./LoginForm";
 
@@ -11,8 +13,25 @@ export default async function StudentLoginPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const usn = await getCurrentUsn();
+  // Awaited first so the page always renders per request: without it the paused branch would be prerendered
+  // at build time and the flag could not be read at runtime.
   const params = await searchParams;
+  // Paused: show the overlay instead of bouncing a signed-in student to the dashboard, which the proxy
+  // sends straight back here. `inert` keeps the form behind it from being focused, clicked or autofilled.
+  if (isSiteShutdown()) {
+    return (
+      <>
+        <div inert aria-hidden="true">
+          <Suspense>
+            <LoginForm />
+          </Suspense>
+        </div>
+        <ShutdownOverlay />
+      </>
+    );
+  }
+
+  const usn = await getCurrentUsn();
   // ?relogin=1 is the one case an already-authenticated visit to this page is intentional —
   // the dashboard sends a signed-in user with no saved portal PIN here to re-verify it
   // through this same secondary-auth form, so the usual "already logged in" bounce needs to

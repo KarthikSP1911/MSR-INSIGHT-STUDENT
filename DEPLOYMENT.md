@@ -200,6 +200,18 @@ student starts a sync (jobs stuck for more than 2 minutes), so one dead job can 
 
 Nothing extra to configure: Vercel serves everything over HTTPS, which installation requires. After deploying, open the site on a phone, sign in, and within a few seconds the install prompt should appear (Android/Chrome: Install button; iPhone: Add to Home Screen steps). It will not reappear for 24 hours, or ever once the app is installed. `/sw.js` is served with `no-cache` so service worker updates are picked up on the next visit.
 
+## Pausing the site
+
+`SITE_SHUTDOWN` is the kill switch, and it defaults to **on**: the code is paused unless the variable is exactly
+`false`. While paused, the login page shows a "Temporarily paused" overlay, `/api/*` answers `503`, `/student/*`
+redirects to login, and nothing in the app contacts `parents.msrit.edu`. `/api/health`, the yearly cron (database
+only) and logout keep working. Because the default is paused, deploying this code is enough; no Vercel variable
+is needed.
+
+To resume once you have permission: add `SITE_SHUTDOWN=false` to the Production environment in Vercel and
+redeploy (environment changes only apply to new deployments). To pause again, remove the variable or set it to
+anything else, and redeploy.
+
 ## When the college portal is down
 
 The dashboard never depends on the portal to open: it always serves what is saved in the database.
