@@ -1278,3 +1278,10 @@
   color: var(--text-primary);
   font-weight: 500;
 }
+
+/* Double-tap/click target (see useDoubleTap): keep the browser from zooming or selecting text on the second tap. */
+.sd-double-tap {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
