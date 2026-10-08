@@ -130,6 +130,25 @@ most one active (`pending`/`running`) job per USN; a job stuck for more than 2 m
 next enqueue so it cannot block that student. `encryptedPin` is snapshotted into the job row at enqueue
 time and decrypted in-process.
 
+**`app_stats`** — running totals, so "how many students / jobs" never needs a table scan. Maintained only by
+database triggers (`drizzle/0011_app_stats_triggers.sql`), never by application code, and built so it cannot slow
+or fail the writes it follows (a stats error is logged and skipped; a counter row is never waited on for more
+than 250 ms):
+
+| `key` | Meaning |
+|---|---|
+| `students_total` | Rows in `students`. |
+| `students_year_<n>` | Students whose `current_year` is `n`: `1`–`4` are the programme years, **`5` = senior** (past the 4 years, e.g. batches below 23 in 2026-27), `0` = year not known (a USN that does not parse). Years 0 to 5 always exist. The year is worked out from the USN's batch and rolls forward every 1 August. |
+| `scrape_jobs_purged` | Jobs already deleted by the 7-day purge (or with their student). Added to **once per delete statement** with the batch size, never per job; creating a job writes nothing. |
+
+Read them through the `app_stats_summary` view, which also reports **`scrape_jobs_total`** (jobs ever created =
+purged + the jobs still stored, at most a week's worth):
+
+```sql
+select * from app_stats_summary order by key;
+select refresh_app_stats();   -- only if the student counters ever drift; recomputes them from `students`
+```
+
 Migrations live in `drizzle/` (Drizzle Kit); see [Setup](#setup) for generating/applying them.
 
 ## API reference
@@ -148,6 +167,7 @@ cookie; there is no bearer-token/header auth.
 | `GET` | `/api/report/student/[usn]` | session (self only) | Fetch a student's report; triggers a scrape if none exists yet. |
 | `POST` | `/api/report/update` | session (self only) | Manual refresh. Body `{ usn, scope? }` with `scope` `current` (default) or `exam_history`; enforces a 1-minute cooldown per scope, enqueues a job and runs it after the response. |
 | `GET` | `/api/scrape-jobs/[id]` | session | Poll job `status`/`error`/`resultSummary`, used by `useScrapeJobPolling`. |
+| `GET` | `/api/cron/refresh-student-years` | `Bearer CRON_SECRET` | Yearly job run by Vercel Cron (`vercel.json`, 1–7 August): moves every student to the year their USN's batch implies. 503 if `CRON_SECRET` is unset, 401 if wrong. |
 
 ## Project layout
 
@@ -197,6 +217,7 @@ Fill in `.env`:
 | `DATABASE_URL` | Neon Postgres connection string. |
 | `JWT_SECRET` | Signs the student session cookie. |
 | `ENCRYPTION_SECRET` | Derives the AES-256-GCM key used to encrypt the stored portal PIN at rest — keep separate from `JWT_SECRET`. |
+| `CRON_SECRET` | Protects `/api/cron/refresh-student-years`, the job (`vercel.json`) that moves every student to the right year each 1 August. The route refuses to run without it. |
 
 Once `DATABASE_URL` is set:
 

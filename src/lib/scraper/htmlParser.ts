@@ -99,12 +99,32 @@ function extractChartDataJsonArray(html: string | undefined): string | null {
   return null;
 }
 
+const SEMESTER_RE = /\bSEM\s*0*\d+\b/i;
+
+/**
+ * The "B.E-IS,  SEM 07,  SEC A" line, found by what it says rather than by position. The portal's dashboard
+ * has put other text before it (from 2026-10-07 the first `<p>` is a notice about 85% attendance), so "the first
+ * paragraph" returned the wrong thing. Only elements with no children are considered, so a large container that
+ * happens to hold the line is not mistaken for it; the first paragraph is kept as the last resort.
+ */
+function findClassDetails($dash: CheerioAPI): string {
+  let found = "";
+  $dash("p, span, div, td, h4, h5, h6").each((_, el) => {
+    if (found) return false;
+    const $el = $dash(el);
+    if ($el.children().length > 0) return;
+    const text = $el.text().trim();
+    if (text.length <= 120 && SEMESTER_RE.test(text)) found = text;
+  });
+  return found || $dash("p").first().text().trim();
+}
+
 /** Parses the dashboard + per-course attendance/CIE pages into the current-semester `details` record. */
 export function parseCurrentSemester(scrapedData: ScrapedData): StudentDetails {
   const $dash = cheerio.load(scrapedData.dashboard);
   const name = $dash("h3").first().text().trim() || "Unknown";
   const usn = $dash("h2").first().text().trim() || "Unknown";
-  const classInfo = $dash("p").first().text().trim() || "";
+  const classInfo = findClassDetails($dash);
 
   const courseRows = extractCourseRowsFromDashboard($dash);
 

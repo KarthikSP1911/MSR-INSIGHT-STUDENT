@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { currentYearFromUsn } from "@/lib/academicYear";
 import { decryptText, encryptText } from "@/lib/auth/crypto";
 import type { Db } from "@/lib/db/client";
 import { scrapeJobs, students } from "@/lib/db/schema";
@@ -142,6 +143,16 @@ describe("POST /api/auth/login: verified students", () => {
     expect(job).toMatchObject({ usn: USN, scope: "full", trigger: "login" });
     expect(decryptText(job.encryptedPin!)).toBe("1234");
     expect(schedule).toHaveBeenCalledWith(db, job.id);
+  });
+
+  it("creates the new student already in the year their USN's batch implies, before any scrape", async () => {
+    portal.mockResolvedValue({ dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1 });
+
+    await login(firstTime);
+
+    const [student] = await db.select().from(students);
+    expect(student.currentYear).toBe(currentYearFromUsn(USN));
+    expect(student.currentYear).toBeGreaterThanOrEqual(1);
   });
 
   it("accepts a first-year temporary USN and keeps it as its own student", async () => {

@@ -18,13 +18,17 @@ export function migrationFiles(): string[] {
     .sort();
 }
 
-export async function applyMigration(pg: PGlite, file: string): Promise<void> {
-  const statements = fs
+/** The statements of one migration file, split the way drizzle splits them. */
+export function migrationStatements(file: string): string[] {
+  return fs
     .readFileSync(path.join(MIGRATIONS_DIR, file), "utf8")
     .split("--> statement-breakpoint")
     .map((s) => s.trim())
     .filter(Boolean);
-  for (const statement of statements) await pg.exec(statement);
+}
+
+export async function applyMigration(pg: PGlite, file: string): Promise<void> {
+  for (const statement of migrationStatements(file)) await pg.exec(statement);
 }
 
 /** Applies every migration whose file name sorts before `before` (all of them when omitted). */

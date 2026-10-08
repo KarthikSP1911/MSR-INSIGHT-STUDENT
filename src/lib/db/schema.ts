@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   index,
   integer,
   jsonb,
@@ -102,3 +103,24 @@ export const scrapeJobs = pgTable(
 
 export type ScrapeJob = typeof scrapeJobs.$inferSelect;
 export type NewScrapeJob = typeof scrapeJobs.$inferInsert;
+
+/**
+ * Running totals, so "how many students / jobs" never needs a table scan. One row per counter:
+ *  - `students_total`: rows in `students`.
+ *  - `students_year_<n>`: students whose `current_year` is n: 1-4 are the programme years, 5 is a senior (past
+ *    the 4 years) and 0 means the year is not known (a USN that does not parse). See src/lib/academicYear.ts.
+ *  - `scrape_jobs_purged`: jobs already deleted (the 7-day purge, or removed with their student). It is added to
+ *    in ONE write per delete statement, never per job, and nothing happens when a job is created. Total jobs
+ *    ever = this + the jobs still in `scrape_jobs`, which the `app_stats_summary` view reports as
+ *    `scrape_jobs_total`.
+ *
+ * Maintained entirely by database triggers (see drizzle/0011_app_stats_triggers.sql), never by application
+ * code: the triggers add no round trip, cannot drift from the write they follow, and are written so a stats
+ * problem can never fail or noticeably delay a student or job write. `refresh_app_stats()` recomputes the
+ * student counters from the table if they ever drift.
+ */
+export const appStats = pgTable("app_stats", {
+  key: text("key").primaryKey(),
+  value: bigint("value", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

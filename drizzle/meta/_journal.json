@@ -71,6 +71,34 @@
       "when": 1791300493215,
       "tag": "0009_split_exam_history",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791398719068,
+      "tag": "0010_add_app_stats",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791398749057,
+      "tag": "0011_app_stats_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791438496147,
+      "tag": "0012_backfill_current_year_from_usn",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791439203022,
+      "tag": "0013_seniors_are_year_5",
+      "breakpoints": true
     }
   ]
 }

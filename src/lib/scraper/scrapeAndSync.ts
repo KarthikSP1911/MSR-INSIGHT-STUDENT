@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 
+import { currentYearFromUsn } from "@/lib/academicYear";
 import { encryptText } from "@/lib/auth/crypto";
 import type { Db } from "@/lib/db/client";
 import { students, type NewStudent, type ScrapeJobScope } from "@/lib/db/schema";
@@ -59,8 +60,14 @@ export async function scrapeStudentUpdate(
   let subjectsCount = 0;
   if (scope !== "exam_history") {
     const details = parseCurrentSemester(scrapedData);
+    // The page layout is not a reliable source for either: the portal once put "Attendance" where the USN was
+    // and a notice where the class line was, which reset every student's year to 0. The USN we logged in with is
+    // authoritative, and the year is worked out from its batch (the page's class line is only the fallback).
+    const year = currentYearFromUsn(usn) ?? details.current_year ?? 0;
+    details.usn = usn;
+    details.current_year = year;
     update.name = details.name;
-    update.currentYear = details.current_year ?? 0;
+    update.currentYear = year;
     update.details = details;
     subjectsCount = details.subjects?.length ?? 0;
   }
