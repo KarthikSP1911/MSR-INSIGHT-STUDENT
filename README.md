@@ -134,7 +134,7 @@ than 250 ms):
 | `key` | Meaning |
 |---|---|
 | `students_total` | Rows in `students`. |
-| `students_year_<n>` | Students whose `current_year` is `n` (`0` = year not known yet). Years 0 to 4 always exist. |
+| `students_year_<n>` | Students whose `current_year` is `n`: `1`–`4` are the programme years, **`5` = senior** (past the 4 years, e.g. batches below 23 in 2026-27), `0` = year not known (a USN that does not parse). Years 0 to 5 always exist. The year is worked out from the USN's batch and rolls forward every 1 August. |
 | `scrape_jobs_purged` | Jobs already deleted by the 7-day purge (or with their student). Added to **once per delete statement** with the batch size, never per job; creating a job writes nothing. |
 
 Read them through the `app_stats_summary` view, which also reports **`scrape_jobs_total`** (jobs ever created =

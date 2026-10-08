@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { academicYearStart, currentYearFromUsn } from "./academicYear";
+import { academicYearStart, currentYearFromUsn, SENIOR_YEAR } from "./academicYear";
 
 const at = (year: number, month: number, day = 15) => new Date(Date.UTC(year, month - 1, day));
 
@@ -24,19 +24,37 @@ describe("currentYearFromUsn", () => {
       ["1MS25IS051", 2],
       ["1MS24CS010", 3],
       ["1MS23IS051", 4],
-      ["1MS22ME001", 4], // past the 4 years: held at 4
-      ["1MS18IS007", 4],
     ])("%s is in year %i", (usn, year) => {
       expect(currentYearFromUsn(usn, now)).toBe(year);
     });
+
+    it.each(["1MS22ME001", "1MS21IS007", "1MS20CS030", "1MS19IS120", "1MS18IS007", "1MS15IS001"])(
+      "%s is past the programme, so a senior (year 5)",
+      (usn) => {
+        expect(currentYearFromUsn(usn, now)).toBe(SENIOR_YEAR);
+        expect(SENIOR_YEAR).toBe(5);
+      },
+    );
 
     it.each([
       ["1MS26IS401", 2], // joined the 2nd year this August
       ["1MS25IS450", 3],
       ["1MS24IS401", 4],
-      ["1MS23IS499", 4], // held at 4
+      ["1MS23IS499", 5], // lateral entry of 2023 has finished their 3 years: senior
+      ["1MS21IS401", 5],
     ])("lateral entry %s is in year %i", (usn, year) => {
       expect(currentYearFromUsn(usn, now)).toBe(year);
+    });
+  });
+
+  describe("when a final-year batch becomes seniors", () => {
+    it("stays year 4 until 1 August of the year after, then becomes year 5", () => {
+      expect(currentYearFromUsn("1MS22IS001", new Date(Date.UTC(2026, 6, 31, 23, 59, 59)))).toBe(4);
+      expect(currentYearFromUsn("1MS22IS001", at(2026, 8, 1))).toBe(5);
+    });
+
+    it("never goes above 5, however old the batch", () => {
+      expect(currentYearFromUsn("1MS05IS001", at(2026, 10))).toBe(5);
     });
   });
 

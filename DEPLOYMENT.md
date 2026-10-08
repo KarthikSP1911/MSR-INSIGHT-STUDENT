@@ -101,24 +101,32 @@ drop table if exists app_stats;
 delete from drizzle.__drizzle_migrations where id in (select id from drizzle.__drizzle_migrations order by id desc limit 2);
 ```
 
-That rollback assumes `0010`/`0011` are the newest migrations. If `0012` has also been applied, use `limit 3` and
-also `drop function if exists year_from_usn(text, timestamptz), refresh_student_years(timestamptz);` (the years it
-set stay as they are).
+That rollback assumes `0010`/`0011` are the newest migrations. If `0012` and `0013` have also been applied, use
+`limit 4` and also `drop function if exists year_from_usn(text, timestamptz), refresh_student_years(timestamptz);`
+(the years they set stay as they are).
 
-### The student year (`0012`)
+### The student year (`0012`, `0013`)
 
 A student's `current_year` is worked out from the batch in their USN (`1MS23IS051` is the 2023 batch), not read
 from the portal's page, whose layout change on 2026-10-07 had reset the year to 0 on every sync. The academic year
-starts on **1 August**; year = academic year − batch + 1, lateral-entry serials (`4xx`) are + 2, and the result is
-held to 1–4 (`src/lib/academicYear.ts`; the SQL twin `year_from_usn()` is tested to agree with it).
+starts on **1 August**; year = academic year − batch + 1, and lateral-entry serials (`4xx`) are + 2.
 
-`0012` sets the year for students already stored. It writes **only the `current_year` column**: not `updated_at`,
-nor any other column, and it only touches rows whose year actually differs.
+- **Years 1 to 4** are the programme. **Year 5 means senior**: a student still on the rolls after the 4 years. In
+  2026-27 that is every batch below 23 (`1MS22…` and earlier, 18 to 22 in your data); a batch not yet started
+  counts as year 1.
+- **It rolls forward every year by itself.** On 1 August 2027 batch 23 becomes seniors and the cutoff moves up
+  to "below 24", and so on. A student's sync updates their own year, and a yearly scheduled job updates everyone
+  else (see below).
 
-**Deploy the code before (or with) this migration.** The deployed app still derives the year from the page, so it
+`src/lib/academicYear.ts` is the rule; its SQL twin `year_from_usn()` is tested to agree with it. `0012` set the
+year for students already stored (held to 1–4); `0013` added the senior year and re-applied the rule. Both write
+**only the `current_year` column**: not `updated_at`, nor any other column, and they only touch rows whose year
+actually differs. Neither can be edited after it has been applied, so later rule changes get a new migration.
+
+**Deploy the code before (or with) these migrations.** The deployed app still derives the year from the page, so it
 would write 0 back on each student's next sync until the new code is live.
 
-Each August, move students who have not signed in up a year (a sync does it for the ones who do):
+To move everyone to the right year by hand at any time:
 
 ```sql
 select refresh_student_years();   -- returns how many students changed; safe to repeat

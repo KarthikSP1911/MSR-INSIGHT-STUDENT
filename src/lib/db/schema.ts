@@ -107,7 +107,8 @@ export type NewScrapeJob = typeof scrapeJobs.$inferInsert;
 /**
  * Running totals, so "how many students / jobs" never needs a table scan. One row per counter:
  *  - `students_total`: rows in `students`.
- *  - `students_year_<n>`: students whose `current_year` is n (0 = year not known yet, i.e. nothing scraped).
+ *  - `students_year_<n>`: students whose `current_year` is n: 1-4 are the programme years, 5 is a senior (past
+ *    the 4 years) and 0 means the year is not known (a USN that does not parse). See src/lib/academicYear.ts.
  *  - `scrape_jobs_purged`: jobs already deleted (the 7-day purge, or removed with their student). It is added to
  *    in ONE write per delete statement, never per job, and nothing happens when a job is created. Total jobs
  *    ever = this + the jobs still in `scrape_jobs`, which the `app_stats_summary` view reports as
