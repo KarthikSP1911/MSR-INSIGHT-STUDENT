@@ -48,6 +48,58 @@ The previous deployment reads the dropped columns, so it will error between migr
 deploy going live; do the two back to back. Take a Neon branch/backup first if you want a rollback
 point.
 
+`npm run db:migrate` applies **every migration that is still pending**, not only the newest. Check what your
+database has already had before you run it (the repo has 12 migrations, `0000` to `0011`):
+
+```sql
+select id, created_at from drizzle.__drizzle_migrations order by id;   -- one row per migration applied
+```
+
+If that shows fewer than 12 rows, the missing ones run too, in order, including the irreversible `0008` above.
+
+### The stats table (`0010`, `0011`) loses nothing
+
+| Migration | What it does |
+|---|---|
+| `0010_add_app_stats.sql` | Creates the new `app_stats` table. |
+| `0011_app_stats_triggers.sql` | Creates functions, triggers and a view, then fills `app_stats` from the current students. |
+
+They only **add** objects. Neither touches a row, column, index or constraint of `students` or `scrape_jobs`:
+the tests snapshot every existing row as JSON plus both tables' columns, indexes and constraints before and after,
+and require them to be identical (`src/lib/db/appStatsMigration.test.ts`). `drizzle-kit migrate` runs all pending
+migrations in a single transaction on this setup, so a failure rolls everything back; the files are also safe to
+re-run if it ever stops half-way. The triggers briefly lock `students` and `scrape_jobs` against writes while they
+are created (milliseconds); a write in that moment waits, it is not lost.
+
+To prove it on your own database:
+
+1. **Restore point.** In the Neon console, create a branch of your production branch before migrating. It is
+   instant and a safe place to rehearse (point `DATABASE_URL` at the branch for a dry run first).
+2. **Fingerprint before and after,** at a quiet time. The two results must match exactly:
+   ```sql
+   select 'students' as tbl, count(*), md5(string_agg(s::text, '' order by usn)) from students s
+   union all
+   select 'scrape_jobs', count(*), md5(string_agg(j::text, '' order by id)) from scrape_jobs j;
+   ```
+   (A student syncing between the two readings legitimately changes a row, so a differing hash with equal counts
+   during live traffic is a normal write, not loss. Counts must never drop.)
+3. **Check the stats** are right: `select * from app_stats_summary order by key;`, then compare `students_total`
+   with `select count(*) from students`.
+
+**Rolling back** (removes only the stats; no student or job data is involved):
+
+```sql
+drop view if exists app_stats_summary;
+drop trigger if exists students_stats_insert on students;
+drop trigger if exists students_stats_delete on students;
+drop trigger if exists students_stats_year_change on students;
+drop trigger if exists scrape_jobs_stats_delete on scrape_jobs;
+drop function if exists students_stats_trigger(), scrape_jobs_purged_trigger(), refresh_app_stats(), app_stats_bump(text[], bigint[]);
+drop table if exists app_stats;
+-- so a later `npm run db:migrate` applies them again:
+delete from drizzle.__drizzle_migrations where id in (select id from drizzle.__drizzle_migrations order by id desc limit 2);
+```
+
 ## Part 2 — Vercel: deploy the Next.js app
 
 1. **Vercel dashboard**: vercel.com → Add New → Project → import the GitHub repo.
