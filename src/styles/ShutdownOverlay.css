@@ -1,0 +1,60 @@
+/* "Temporarily paused" overlay (src/components/ShutdownOverlay.tsx). Sits above the login page's select
+   dropdowns (990), the install prompt (1100) and the feedback button (50). */
+
+.shutdown-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(10, 10, 10, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.shutdown-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(440px, 100%);
+  padding: 32px 28px;
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
+}
+
+.shutdown-icon {
+  margin-bottom: 16px;
+  color: var(--accent-primary);
+}
+
+.shutdown-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.shutdown-body {
+  margin: 0 0 24px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.shutdown-portal-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.shutdown-portal-link:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 3px;
+}
