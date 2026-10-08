@@ -3,6 +3,12 @@ import { SignJWT, jwtVerify } from "jose";
 /** 160-day session TTL — matches the persistent cookie maxAge when "Remember Me" is checked. */
 const SESSION_TTL = "160d";
 
+/**
+ * Sessions issued before this moment are rejected, so every student signs in once more and is shown the
+ * Terms and Conditions checkbox on the login form. Move it forward to force another sign-in for everyone.
+ */
+export const SESSIONS_VALID_FROM = Math.floor(Date.UTC(2026, 9, 8, 14, 0) / 1000);
+
 export interface StudentTokenPayload {
   usn: string;
 }
@@ -32,6 +38,7 @@ export async function verifyStudentToken(
   try {
     const { payload } = await jwtVerify(token, getSecretKey());
     if (typeof payload.usn !== "string") return null;
+    if (typeof payload.iat !== "number" || payload.iat < SESSIONS_VALID_FROM) return null;
     return { usn: payload.usn };
   } catch {
     return null;
