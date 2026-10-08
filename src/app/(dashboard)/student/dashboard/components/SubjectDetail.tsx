@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Clock, Pie
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import "@/styles/SubjectDetail.css";
 
+import { getAttendanceBuffer } from "@/lib/attendance/attendanceBuffer";
 import type { Subject } from "@/lib/studentDetails";
 
 const ASSESSMENT_ICONS: Record<string, string> = { T1: "T1", T2: "T2", AQ1: "Q1", AQ2: "Q2" };
@@ -98,12 +99,13 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
   const presentCount = attendanceDetails.present ?? presentDates.length;
   const absentCount = attendanceDetails.absent ?? absentDates.length;
   const remainingCount = attendanceDetails.remaining ?? 0;
-  const totalClasses = presentCount + absentCount + remainingCount;
-
-  const T = targetPct / 100;
-  const canMiss = Math.floor(presentCount + remainingCount - T * totalClasses);
-  const maxPossiblePct = totalClasses > 0 ? ((presentCount + remainingCount) / totalClasses) * 100 : 0;
-  const isImpossible = targetPct > Math.round(maxPossiblePct);
+  const {
+    total: totalClasses,
+    buffer,
+    coversAllRemaining,
+    maxPossiblePct,
+    isReachable,
+  } = getAttendanceBuffer({ present: presentCount, absent: absentCount, remaining: remainingCount }, targetPct);
 
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
@@ -159,7 +161,8 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
   ];
   const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
 
-  const attColor = canMiss > 0 ? "var(--success)" : canMiss === 0 ? "var(--warning)" : "var(--error)";
+  const noClassesLeft = remainingCount === 0;
+  const attColor = buffer < 0 ? "var(--error)" : buffer > 0 || noClassesLeft ? "var(--success)" : "var(--warning)";
 
   if (!subject) return null;
 
@@ -391,29 +394,11 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
 
           {totalClasses === 0 ? (
             <p className="sd-att-calc-na">No attendance data available</p>
-          ) : canMiss > 0 ? (
-            <div className="sd-att-result sd-att-result-ok">
-              <div className="sd-att-result-icon">✓</div>
-              <div>
-                <p className="sd-att-result-main">
-                  You can miss <strong>{canMiss}</strong> more class{canMiss !== 1 ? "es" : ""}
-                </p>
-                <p className="sd-att-result-sub">and still maintain {targetPct}% attendance</p>
-              </div>
-            </div>
-          ) : canMiss === 0 ? (
-            <div className="sd-att-result sd-att-result-warn">
-              <div className="sd-att-result-icon">!</div>
-              <div>
-                <p className="sd-att-result-main">No more absences allowed</p>
-                <p className="sd-att-result-sub">Attend all remaining classes to stay at {targetPct}%</p>
-              </div>
-            </div>
-          ) : (
+          ) : buffer < 0 ? (
             <div className="sd-att-result sd-att-result-danger">
               <div className="sd-att-result-icon">✗</div>
               <div>
-                {isImpossible ? (
+                {!isReachable ? (
                   <>
                     <p className="sd-att-result-main">Target Unreachable</p>
                     <p className="sd-att-result-sub">
@@ -424,13 +409,48 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
                 ) : (
                   <>
                     <p className="sd-att-result-main">
-                      Need <strong>{Math.abs(canMiss)}</strong> more class{Math.abs(canMiss) !== 1 ? "es" : ""}
+                      Need <strong>{Math.abs(buffer)}</strong> more class{Math.abs(buffer) !== 1 ? "es" : ""}
                     </p>
                     <p className="sd-att-result-sub">
-                      Attend the next {Math.abs(canMiss)} classes without fail to reach {targetPct}%.
+                      Attend the next {Math.abs(buffer)} classes without fail to reach {targetPct}%.
                     </p>
                   </>
                 )}
+              </div>
+            </div>
+          ) : noClassesLeft ? (
+            <div className="sd-att-result sd-att-result-ok">
+              <div className="sd-att-result-icon">✓</div>
+              <div>
+                <p className="sd-att-result-main">No classes remaining</p>
+                <p className="sd-att-result-sub">You finished above your {targetPct}% target</p>
+              </div>
+            </div>
+          ) : coversAllRemaining ? (
+            <div className="sd-att-result sd-att-result-ok">
+              <div className="sd-att-result-icon">✓</div>
+              <div>
+                <p className="sd-att-result-main">You&apos;re on track for {targetPct}%</p>
+                <p className="sd-att-result-sub">Keep attending every remaining class to stay there</p>
+              </div>
+            </div>
+          ) : buffer > 0 ? (
+            <div className="sd-att-result sd-att-result-ok">
+              <div className="sd-att-result-icon">✓</div>
+              <div>
+                <p className="sd-att-result-main">Attend every class</p>
+                <p className="sd-att-result-sub">
+                  Your {targetPct}% target has a safety margin of just {buffer} class{buffer !== 1 ? "es" : ""}. Try not to
+                  use it.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="sd-att-result sd-att-result-warn">
+              <div className="sd-att-result-icon">!</div>
+              <div>
+                <p className="sd-att-result-main">Don&apos;t miss any more classes</p>
+                <p className="sd-att-result-sub">Attend all remaining classes to stay at {targetPct}%</p>
               </div>
             </div>
           )}
