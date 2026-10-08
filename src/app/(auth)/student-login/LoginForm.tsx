@@ -4,6 +4,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
+import TermsDialog from "@/components/auth/TermsDialog";
 import FeedbackButton from "@/components/feedback/FeedbackButton";
 import { readCachedProfileForSession, setRememberPreference, writeCachedProfile } from "@/lib/cache/profileCache";
 import type { Student } from "@/lib/db/schema";
@@ -114,6 +115,8 @@ export default function LoginForm() {
   const [authType, setAuthType] = useState("Father's Mobile");
   const [last4Digits, setLast4Digits] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [infoMsg, setInfoMsg] = useState(() => (serverBack ? SERVER_BACK_NOTICE : ""));
@@ -175,6 +178,11 @@ export default function LoginForm() {
     e.preventDefault();
     if (!usn || !day || !month || !year) {
       setError("Please fill in all basic fields (USN and Date of Birth)");
+      return;
+    }
+
+    if (!acceptedTerms) {
+      setError("Please accept the Terms and Conditions to continue");
       return;
     }
 
@@ -322,6 +330,21 @@ export default function LoginForm() {
             <span>Remember me</span>
           </label>
 
+          <div className="terms-consent">
+            <label className="remember-me-label terms-consent-label">
+              <input
+                type="checkbox"
+                className="remember-me-checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+              />
+              <span>I agree to the</span>
+            </label>
+            <button type="button" className="terms-link" onClick={() => setTermsOpen(true)}>
+              Terms and Conditions
+            </button>
+          </div>
+
           {!showSecondaryAuth && (
             <button
               type="button"
@@ -340,6 +363,7 @@ export default function LoginForm() {
           </button>
         </form>
       </div>
+      <TermsDialog open={termsOpen} onClose={() => setTermsOpen(false)} />
       <FeedbackButton />
     </div>
   );
