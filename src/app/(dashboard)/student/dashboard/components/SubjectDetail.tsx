@@ -5,6 +5,8 @@ import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Clock, Pie
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import "@/styles/SubjectDetail.css";
 
+import { useDoubleTap } from "@/hooks/useDoubleTap";
+import { getAttendanceBuffer } from "@/lib/attendance/attendanceBuffer";
 import type { Subject } from "@/lib/studentDetails";
 
 const ASSESSMENT_ICONS: Record<string, string> = { T1: "T1", T2: "T2", AQ1: "Q1", AQ2: "Q2" };
@@ -67,6 +69,9 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
   const [targetPct, setTargetPct] = useState(85);
   const [showAssessments, setShowAssessments] = useState(true);
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
+  // Hidden until the student double-taps (or double-clicks) the attendance card.
+  const [showCalculator, setShowCalculator] = useState(false);
+  const onAttendanceDoubleTap = useDoubleTap(() => setShowCalculator((shown) => !shown));
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -98,12 +103,13 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
   const presentCount = attendanceDetails.present ?? presentDates.length;
   const absentCount = attendanceDetails.absent ?? absentDates.length;
   const remainingCount = attendanceDetails.remaining ?? 0;
-  const totalClasses = presentCount + absentCount + remainingCount;
-
-  const T = targetPct / 100;
-  const canMiss = Math.floor(presentCount + remainingCount - T * totalClasses);
-  const maxPossiblePct = totalClasses > 0 ? ((presentCount + remainingCount) / totalClasses) * 100 : 0;
-  const isImpossible = targetPct > Math.round(maxPossiblePct);
+  const {
+    total: totalClasses,
+    buffer,
+    coversAllRemaining,
+    maxPossiblePct,
+    isReachable,
+  } = getAttendanceBuffer({ present: presentCount, absent: absentCount, remaining: remainingCount }, targetPct);
 
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
@@ -159,7 +165,8 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
   ];
   const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
 
-  const attColor = canMiss > 0 ? "var(--success)" : canMiss === 0 ? "var(--warning)" : "var(--error)";
+  const noClassesLeft = remainingCount === 0;
+  const attColor = buffer < 0 ? "var(--error)" : buffer > 0 || noClassesLeft ? "var(--success)" : "var(--warning)";
 
   if (!subject) return null;
 
@@ -227,7 +234,7 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
       </div>
 
       {/* NEW ATTENDANCE SUMMARY FOR MOBILE */}
-      <div className="sd-mobile-attendance-summary">
+      <div className="sd-mobile-attendance-summary sd-double-tap" onPointerUp={onAttendanceDoubleTap}>
         <div className="sd-mobile-att-grid">
           <div className="sd-mobile-att-item">
             <div className="sd-mobile-att-header">
@@ -264,7 +271,7 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
       </div>
 
       <div className="sd-2x2-grid">
-        <section className="sd-card sd-calendar-card">
+        <section className="sd-card sd-calendar-card sd-double-tap" onPointerUp={onAttendanceDoubleTap}>
           <div className="sd-card-header">
             <div>
               <h3 className="sd-card-title">Attendance</h3>
@@ -321,139 +328,158 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
           </div>
         </section>
 
-        <section className="sd-card sd-calc-card sd-calculation-card">
-          <div className="sd-card-header">
-            <div>
-              <h3 className="sd-card-title">Attendance Calculator</h3>
-              <p className="sd-card-subtitle">Track your attendance threshold</p>
+        {showCalculator && (
+          <section className="sd-card sd-calc-card sd-calculation-card">
+            <div className="sd-card-header">
+              <div>
+                <h3 className="sd-card-title">Attendance Calculator</h3>
+                <p className="sd-card-subtitle">Track your attendance threshold</p>
+              </div>
+              <div className="sd-att-slider-container">
+                <div className="sd-slider-header">
+                  <span className="sd-slider-title">Target Attendance</span>
+                  <span className="sd-slider-value" style={{ color: getAttendanceColor(targetPct) }}>
+                    {targetPct}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={targetPct}
+                  onChange={(e) => setTargetPct(parseInt(e.target.value))}
+                  className="sd-att-range-slider"
+                />
+              </div>
             </div>
-            <div className="sd-att-slider-container">
-              <div className="sd-slider-header">
-                <span className="sd-slider-title">Target Attendance</span>
-                <span className="sd-slider-value" style={{ color: getAttendanceColor(targetPct) }}>
+
+            <div className="sd-calc-stat-row">
+              <div className="sd-calc-stat">
+                <span className="sd-calc-stat-label">Current</span>
+                <span className="sd-calc-stat-val" style={{ color: attColor }}>
+                  {Math.round(subject.attendance || 0)}%
+                </span>
+              </div>
+              <div className="sd-calc-stat-divider" />
+              <div className="sd-calc-stat">
+                <span className="sd-calc-stat-label">Target</span>
+                <span className="sd-calc-stat-val" style={{ color: "var(--warning)" }}>
                   {targetPct}%
                 </span>
               </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={targetPct}
-                onChange={(e) => setTargetPct(parseInt(e.target.value))}
-                className="sd-att-range-slider"
-              />
-            </div>
-          </div>
-
-          <div className="sd-calc-stat-row">
-            <div className="sd-calc-stat">
-              <span className="sd-calc-stat-label">Current</span>
-              <span className="sd-calc-stat-val" style={{ color: attColor }}>
-                {Math.round(subject.attendance || 0)}%
-              </span>
-            </div>
-            <div className="sd-calc-stat-divider" />
-            <div className="sd-calc-stat">
-              <span className="sd-calc-stat-label">Target</span>
-              <span className="sd-calc-stat-val" style={{ color: "var(--warning)" }}>
-                {targetPct}%
-              </span>
-            </div>
-            <div className="sd-calc-stat-divider" />
-            <div className="sd-calc-stat">
-              <span className="sd-calc-stat-label">Total</span>
-              <span className="sd-calc-stat-val" style={{ color: "var(--text-secondary)" }}>
-                {totalClasses}
-              </span>
-            </div>
-          </div>
-
-          <div className="sd-att-progress-wrap">
-            <div className="sd-att-progress-bar">
-              <div
-                className="sd-att-progress-fill"
-                style={{
-                  width: `${Math.min(100, Math.round(subject.attendance || 0))}%`,
-                  background: attColor,
-                }}
-              />
-              <div
-                className="sd-att-progress-target"
-                style={{ left: `${Math.min(targetPct, 99)}%` }}
-                title={`${targetPct}% threshold`}
-              />
-            </div>
-            <div className="sd-att-progress-labels">
-              <span style={{ color: attColor }}>{Math.round(subject.attendance || 0)}% current</span>
-              <span style={{ color: "var(--text-secondary)" }}>{targetPct}% target</span>
-            </div>
-          </div>
-
-          {totalClasses === 0 ? (
-            <p className="sd-att-calc-na">No attendance data available</p>
-          ) : canMiss > 0 ? (
-            <div className="sd-att-result sd-att-result-ok">
-              <div className="sd-att-result-icon">✓</div>
-              <div>
-                <p className="sd-att-result-main">
-                  You can miss <strong>{canMiss}</strong> more class{canMiss !== 1 ? "es" : ""}
-                </p>
-                <p className="sd-att-result-sub">and still maintain {targetPct}% attendance</p>
+              <div className="sd-calc-stat-divider" />
+              <div className="sd-calc-stat">
+                <span className="sd-calc-stat-label">Total</span>
+                <span className="sd-calc-stat-val" style={{ color: "var(--text-secondary)" }}>
+                  {totalClasses}
+                </span>
               </div>
             </div>
-          ) : canMiss === 0 ? (
-            <div className="sd-att-result sd-att-result-warn">
-              <div className="sd-att-result-icon">!</div>
-              <div>
-                <p className="sd-att-result-main">No more absences allowed</p>
-                <p className="sd-att-result-sub">Attend all remaining classes to stay at {targetPct}%</p>
-              </div>
-            </div>
-          ) : (
-            <div className="sd-att-result sd-att-result-danger">
-              <div className="sd-att-result-icon">✗</div>
-              <div>
-                {isImpossible ? (
-                  <>
-                    <p className="sd-att-result-main">Target Unreachable</p>
-                    <p className="sd-att-result-sub">
-                      Max achievable attendance is <strong>{Math.round(maxPossiblePct)}%</strong> even if you attend all
-                      remaining classes.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="sd-att-result-main">
-                      Need <strong>{Math.abs(canMiss)}</strong> more class{Math.abs(canMiss) !== 1 ? "es" : ""}
-                    </p>
-                    <p className="sd-att-result-sub">
-                      Attend the next {Math.abs(canMiss)} classes without fail to reach {targetPct}%.
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
 
-          <div className="sd-calc-breakdown">
-            <div className="sd-calc-breakdown-row">
-              <span>Classes attended</span>
-              <span style={{ color: "var(--success)", fontWeight: 700 }}>{presentCount}</span>
+            <div className="sd-att-progress-wrap">
+              <div className="sd-att-progress-bar">
+                <div
+                  className="sd-att-progress-fill"
+                  style={{
+                    width: `${Math.min(100, Math.round(subject.attendance || 0))}%`,
+                    background: attColor,
+                  }}
+                />
+                <div
+                  className="sd-att-progress-target"
+                  style={{ left: `${Math.min(targetPct, 99)}%` }}
+                  title={`${targetPct}% threshold`}
+                />
+              </div>
+              <div className="sd-att-progress-labels">
+                <span style={{ color: attColor }}>{Math.round(subject.attendance || 0)}% current</span>
+                <span style={{ color: "var(--text-secondary)" }}>{targetPct}% target</span>
+              </div>
             </div>
-            <div className="sd-calc-breakdown-row">
-              <span>Classes missed</span>
-              <span style={{ color: "var(--error)", fontWeight: 700 }}>{absentCount}</span>
+
+            {totalClasses === 0 ? (
+              <p className="sd-att-calc-na">No attendance data available</p>
+            ) : buffer < 0 ? (
+              <div className="sd-att-result sd-att-result-danger">
+                <div className="sd-att-result-icon">✗</div>
+                <div>
+                  {!isReachable ? (
+                    <>
+                      <p className="sd-att-result-main">Target Unreachable</p>
+                      <p className="sd-att-result-sub">
+                        Max achievable attendance is <strong>{Math.round(maxPossiblePct)}%</strong> even if you attend all
+                        remaining classes.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="sd-att-result-main">
+                        Need <strong>{Math.abs(buffer)}</strong> more class{Math.abs(buffer) !== 1 ? "es" : ""}
+                      </p>
+                      <p className="sd-att-result-sub">
+                        Attend the next {Math.abs(buffer)} classes without fail to reach {targetPct}%.
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : noClassesLeft ? (
+              <div className="sd-att-result sd-att-result-ok">
+                <div className="sd-att-result-icon">✓</div>
+                <div>
+                  <p className="sd-att-result-main">No classes remaining</p>
+                  <p className="sd-att-result-sub">You finished above your {targetPct}% target</p>
+                </div>
+              </div>
+            ) : coversAllRemaining ? (
+              <div className="sd-att-result sd-att-result-ok">
+                <div className="sd-att-result-icon">✓</div>
+                <div>
+                  <p className="sd-att-result-main">You&apos;re on track for {targetPct}%</p>
+                  <p className="sd-att-result-sub">Keep attending every remaining class to stay there</p>
+                </div>
+              </div>
+            ) : buffer > 0 ? (
+              <div className="sd-att-result sd-att-result-ok">
+                <div className="sd-att-result-icon">✓</div>
+                <div>
+                  <p className="sd-att-result-main">Attend every class</p>
+                  <p className="sd-att-result-sub">
+                    Your {targetPct}% target has a safety margin of just {buffer} class{buffer !== 1 ? "es" : ""}. Try not to
+                    use it.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="sd-att-result sd-att-result-warn">
+                <div className="sd-att-result-icon">!</div>
+                <div>
+                  <p className="sd-att-result-main">Don&apos;t miss any more classes</p>
+                  <p className="sd-att-result-sub">Attend all remaining classes to stay at {targetPct}%</p>
+                </div>
+              </div>
+            )}
+
+            <div className="sd-calc-breakdown">
+              <div className="sd-calc-breakdown-row">
+                <span>Classes attended</span>
+                <span style={{ color: "var(--success)", fontWeight: 700 }}>{presentCount}</span>
+              </div>
+              <div className="sd-calc-breakdown-row">
+                <span>Classes missed</span>
+                <span style={{ color: "var(--error)", fontWeight: 700 }}>{absentCount}</span>
+              </div>
+              <div className="sd-calc-breakdown-row">
+                <span>Classes remaining</span>
+                <span style={{ color: "var(--text-secondary)", fontWeight: 700 }}>{remainingCount}</span>
+              </div>
+              <div className="sd-calc-breakdown-row sd-calc-breakdown-total">
+                <span>Total classes</span>
+                <span style={{ color: "var(--text-primary)", fontWeight: 800 }}>{totalClasses}</span>
+              </div>
             </div>
-            <div className="sd-calc-breakdown-row">
-              <span>Classes remaining</span>
-              <span style={{ color: "var(--text-secondary)", fontWeight: 700 }}>{remainingCount}</span>
-            </div>
-            <div className="sd-calc-breakdown-row sd-calc-breakdown-total">
-              <span>Total classes</span>
-              <span style={{ color: "var(--text-primary)", fontWeight: 800 }}>{totalClasses}</span>
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         <section className="sd-card sd-chart-card">
           <div className="sd-card-header">
