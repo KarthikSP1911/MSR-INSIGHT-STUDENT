@@ -106,7 +106,6 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
   const {
     total: totalClasses,
     buffer,
-    coversAllRemaining,
     maxPossiblePct,
     isReachable,
   } = getAttendanceBuffer({ present: presentCount, absent: absentCount, remaining: remainingCount }, targetPct);
@@ -431,30 +430,21 @@ export default function SubjectDetail({ subject, allSubjects, onSubjectChange, o
                   <p className="sd-att-result-sub">You finished above your {targetPct}% target</p>
                 </div>
               </div>
-            ) : coversAllRemaining ? (
-              <div className="sd-att-result sd-att-result-ok">
-                <div className="sd-att-result-icon">✓</div>
-                <div>
-                  <p className="sd-att-result-main">You&apos;re on track for {targetPct}%</p>
-                  <p className="sd-att-result-sub">Keep attending every remaining class to stay there</p>
-                </div>
-              </div>
             ) : buffer > 0 ? (
               <div className="sd-att-result sd-att-result-ok">
                 <div className="sd-att-result-icon">✓</div>
                 <div>
-                  <p className="sd-att-result-main">Attend every class</p>
-                  <p className="sd-att-result-sub">
-                    Your {targetPct}% target has a safety margin of just {buffer} class{buffer !== 1 ? "es" : ""}. Try not to
-                    use it.
+                  <p className="sd-att-result-main">
+                    You can miss <strong>{buffer}</strong> more class{buffer !== 1 ? "es" : ""}
                   </p>
+                  <p className="sd-att-result-sub">and still maintain {targetPct}% attendance</p>
                 </div>
               </div>
             ) : (
               <div className="sd-att-result sd-att-result-warn">
                 <div className="sd-att-result-icon">!</div>
                 <div>
-                  <p className="sd-att-result-main">Don&apos;t miss any more classes</p>
+                  <p className="sd-att-result-main">No more absences allowed</p>
                   <p className="sd-att-result-sub">Attend all remaining classes to stay at {targetPct}%</p>
                 </div>
               </div>
