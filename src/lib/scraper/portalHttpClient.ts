@@ -17,8 +17,14 @@ export const PORTAL_BASE_URL = "https://parents.msrit.edu/newparents/";
 const PORTAL_ORIGIN = "https://parents.msrit.edu";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
 
-/** Per-request cap; the overall login is also bounded by `deadlineMs`. */
-const REQUEST_TIMEOUT_MS = 12_000;
+/**
+ * Per-attempt cap; the overall login is also bounded by `deadlineMs`. The portal answers in well under a
+ * second when healthy but sometimes stops accepting connections for a while, so a short cap with a retry
+ * recovers more often than one long wait.
+ */
+const REQUEST_TIMEOUT_MS = 8_000;
+/** Extra attempts after a network failure (timeout, refused or reset connection). HTTP error responses are not retried. */
+const MAX_NETWORK_RETRIES = 2;
 const DEFAULT_LOGIN_DEADLINE_MS = 25_000;
 const MAX_REDIRECTS = 8;
 
@@ -141,23 +147,30 @@ async function send(t: Transport, method: "GET" | "POST", url: string, form?: Re
     const remaining = t.deadline - Date.now();
     if (remaining <= 0) throw new PortalUnavailableError("Portal login timed out");
 
-    let res: Response;
-    try {
-      res = await t.fetchImpl(currentUrl, {
-        method: currentMethod,
-        redirect: "manual",
-        signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, remaining)),
-        headers: {
-          "User-Agent": USER_AGENT,
-          Cookie: t.jar.header(),
-          ...(body
-            ? { "Content-Type": "application/x-www-form-urlencoded", Referer: PORTAL_BASE_URL, Origin: PORTAL_ORIGIN }
-            : {}),
-        },
-        body,
-      });
-    } catch (err) {
-      throw new PortalUnavailableError(`Could not reach the portal (${err instanceof Error ? err.message : "network error"})`);
+    let res: Response | undefined;
+    for (let attempt = 0; !res; attempt++) {
+      const budget = t.deadline - Date.now();
+      if (budget <= 0) throw new PortalUnavailableError("Portal login timed out");
+      try {
+        res = await t.fetchImpl(currentUrl, {
+          method: currentMethod,
+          redirect: "manual",
+          signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, budget)),
+          headers: {
+            "User-Agent": USER_AGENT,
+            Cookie: t.jar.header(),
+            ...(body
+              ? { "Content-Type": "application/x-www-form-urlencoded", Referer: PORTAL_BASE_URL, Origin: PORTAL_ORIGIN }
+              : {}),
+          },
+          body,
+        });
+      } catch (err) {
+        if (attempt >= MAX_NETWORK_RETRIES) {
+          throw new PortalUnavailableError(`Could not reach the portal (${err instanceof Error ? err.message : "network error"})`);
+        }
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
     }
     t.requestCount++;
     t.jar.store(res.headers);
