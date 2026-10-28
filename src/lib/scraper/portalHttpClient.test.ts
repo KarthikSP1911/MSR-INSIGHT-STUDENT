@@ -178,6 +178,17 @@ describe("loginToPortal", () => {
     await expect(loginToPortal(input, { fetchImpl })).rejects.toBeInstanceOf(PortalUnavailableError);
   });
 
+  it("retries a connection failure and still signs in", async () => {
+    const { fetchImpl: portal } = fakePortal({ stage1: DASHBOARD_PAGE });
+    let failures = 2;
+    const fetchImpl = (async (...args: Parameters<typeof fetch>) => {
+      if (failures-- > 0) throw new TypeError("fetch failed");
+      return portal(...args);
+    }) as typeof fetch;
+    const result = await loginToPortal(input, { fetchImpl });
+    expect(result.dashboardHtml).toContain("LOGOUT");
+  });
+
   it("fails cleanly once the overall deadline has passed", async () => {
     const { fetchImpl } = fakePortal({ stage1: PIN_PAGE });
     await expect(loginToPortal(input, { fetchImpl, deadlineMs: -1 })).rejects.toThrow(/timed out/);

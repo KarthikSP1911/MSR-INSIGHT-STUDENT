@@ -47,3 +47,6 @@ next-env.d.ts
 
 # throwaway local experiments (may touch real credentials), never committed
 /.scratch/
+
+# Personal notes (not committed)
+/docs/private/
