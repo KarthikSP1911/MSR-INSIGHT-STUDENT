@@ -3,9 +3,10 @@
 ## Overview
 
 The entire app — UI, API routes, and the portal scraper — deploys as a single Next.js project to
-Vercel's free (Hobby) tier. No second host (Render, Fly, Railway, etc.), no browser service, and no
-per-student tokens are needed: the scraper logs in to the college portal with plain HTTP `fetch`, so
-it is small, fast, and fits comfortably inside a serverless function.
+Vercel's free (Hobby) tier. No second host (Render, Fly, Railway, etc.) is needed. The scraper logs in to
+the college portal in a remote Chromium on Browserless.io, using a token each student supplies for
+themselves (so there is no browser to host and no shared Browserless bill), then fetches the pages with
+plain HTTP, which fits inside a serverless function.
 
 > Vercel's Hobby plan is for personal, non-commercial use. Move to a paid plan if this becomes a
 > commercial service.
@@ -22,7 +23,7 @@ Browser → Vercel (Next.js)
                                    ↕
                          Neon Postgres (scrape_jobs + students)
                                    ↕
-                  parents.msrit.edu (plain HTTPS requests)
+                  parents.msrit.edu (login via Browserless, then plain HTTPS requests)
 ```
 
 Routes that scrape export `maxDuration = 60` and run the job inside Next's `after()`, which keeps
@@ -37,11 +38,12 @@ Apply the migrations to your Neon database **before** deploying the new code:
 npm run db:migrate   # DATABASE_URL pointed at your Neon project
 ```
 
-The two newest migrations change existing data:
+These migrations change existing data:
 
 | Migration | What it does |
 |---|---|
 | `0008_drop_browserless_columns.sql` | Drops `students.encrypted_browserless_token`, `students.browserless_token_valid`, `scrape_jobs.encrypted_browserless_token`. **Irreversible**: saved Browserless tokens are deleted (they are no longer used). |
+| `0014_restore_browserless_columns.sql` | Adds `students.encrypted_browserless_token`, `students.browserless_token_valid` and `scrape_jobs.encrypted_browserless_token` back. The columns start empty (0008 deleted the old tokens), so every existing student is asked for a Browserless token at their next sign-in, and manual refreshes send them to the login page until they enter one. |
 | `0009_split_exam_history.sql` | Adds `students.exam_history`, `students.cgpa`, `students.exam_history_updated_at`, copies each student's existing exam history and CGPA out of `details` into them, and renames the job scope `recurring` to `current`. |
 
 The previous deployment reads the dropped columns, so it will error between migrating and the new
@@ -147,7 +149,8 @@ select refresh_student_years();   -- returns how many students changed; safe to 
    | `ENCRYPTION_SECRET` | Different long random secret — `openssl rand -base64 32`. |
    | `CRON_SECRET` | A third long random secret. Protects the yearly student-year job (below); the job refuses to run without it. |
 
-   There is no browser to configure and no scraping token to provide.
+   There is nothing Browserless-related to configure on Vercel: each student pastes their own Browserless.io
+   token on the login form.
 
 3. Trigger the deploy (push to the connected branch, or "Deploy" in the dashboard).
 

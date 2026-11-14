@@ -1,27 +1,40 @@
 # How scraping works
 
 Everything the dashboard shows comes from the college parent portal
-(`https://parents.msrit.edu/newparents/`). A scrape logs in as the student with plain HTTP, fetches
-the pages it needs, parses them, and writes the result onto the student's row. There is no browser
-and no separate worker process: the scrape runs inside the Vercel function that queued it.
+(`https://parents.msrit.edu/newparents/`). A scrape logs in as the student in a remote Chromium on
+Browserless.io (the student's own token), fetches the pages it needs with plain HTTP, parses them, and
+writes the result onto the student's row. Nothing runs a browser locally and there is no separate worker process: the scrape runs inside the Vercel function that queued it.
 
 ## Pipeline
 
 ```
 route (login / update / report)
-  └─ enqueueScrapeJob()            scrape_jobs row, PIN encrypted, one active job per USN
+  └─ enqueueScrapeJob()            scrape_jobs row, PIN and Browserless token encrypted, one active job per USN
   └─ runJobAfterResponse()         after(): keeps the function alive past the response
        └─ claimAndRunJob()         claims the job, 45s deadline, records success / failure
             └─ scrapeAndSyncStudent()
                  ├─ getCompleteStudentData()   portalScraper.ts
-                 │    ├─ loginToPortal()       portalHttpClient.ts   (2-step login over fetch)
+                 │    ├─ loginToPortalWithBrowserless()  browserlessClient.ts  (2-step login in remote Chromium)
                  │    └─ planFetchTargets()    which sub-pages this scope needs
                  │       + axios fan-out       6 at a time, retries on 429/5xx
                  ├─ parseCurrentSemester()     htmlParser.ts + dataNormalizer.ts  -> students.details
                  └─ parseExamHistory()         htmlParser.ts                       -> students.examHistory, cgpa
 ```
 
-## Login (`portalHttpClient.ts`)
+## Login (`browserlessClient.ts`)
+
+`puppeteer.connect` to `wss://chrome.browserless.io?token=<student's token>`, load the login page (images,
+styles and fonts blocked), fill the USN and DOB selects, submit, then fill the PIN step if the portal asks
+for it. Success is a dashboard/`ksign` URL or a `LOGOUT` link on a page without the portal's error text.
+The session cookie is read from the page and the browser is closed; everything after is plain HTTP.
+
+- Connect fails: `BrowserlessTokenInvalidError`. `runJob` sets `students.browserless_token_valid = false`
+  and the job error `browserless_token_invalid`; the next login asks for a new token.
+- Wrong USN/DOB/PIN: `PortalAuthError`. Portal not answering: `PortalUnavailableError`.
+- The login route also logs in once before saving anything (`verifyPortalLogin`), so a new student's
+  first sign-in uses the token twice.
+
+### The earlier plain-HTTP login (`portalHttpClient.ts`, no longer used)
 
 The portal is a Joomla app with a two-step form:
 

@@ -10,6 +10,8 @@ export interface EnqueueScrapeJobInput {
   authType?: string | null;
   /** Plain-text PIN — encrypted before it ever touches the row. */
   plainPin?: string | null;
+  /** Plain-text Browserless.io token: encrypted before it ever touches the row. */
+  plainBrowserlessToken?: string | null;
   trigger: ScrapeJobTrigger;
   /** What to fetch: `current`, `exam_history` or `full`. Defaults to `full`. */
   scope?: ScrapeJobScope;
@@ -99,7 +101,7 @@ export async function hasRecentFailedJob(db: Db, usn: string, withinMs: number):
 }
 
 /**
- * Queues a scrape job to be run by `claimAndRunJob`. The PIN is encrypted at rest immediately,
+ * Queues a scrape job to be run by `claimAndRunJob`. The PIN and Browserless token are encrypted at rest immediately,
  * even in this transient queue table — never stored or logged in plain text.
  *
  * Coalesced against `scrape_jobs_active_usn_idx` (a partial unique index on
@@ -120,6 +122,7 @@ export async function enqueueScrapeJob(db: Db, input: EnqueueScrapeJobInput): Pr
         dob: input.dob,
         authType: input.authType ?? null,
         encryptedPin: input.plainPin ? encryptText(input.plainPin) : null,
+        encryptedBrowserlessToken: input.plainBrowserlessToken ? encryptText(input.plainBrowserlessToken) : null,
         trigger: input.trigger,
         scope,
         status: "pending",

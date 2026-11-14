@@ -27,6 +27,8 @@ export const loginSchema = z.object({
   dob,
   authType: z.string().trim().optional(),
   last4Digits: z.string().trim().optional(),
+  /** Per-student Browserless.io API token, submitted alongside the PIN on secondary auth. */
+  browserlessToken: z.string().trim().optional(),
   forceResync: z.boolean().optional(),
   /** When true, sets a persistent 160-day cookie; when false/absent, sets a session cookie. */
   rememberMe: z.boolean().optional(),

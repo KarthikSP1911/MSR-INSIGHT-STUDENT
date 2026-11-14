@@ -19,7 +19,7 @@ const DASHBOARD = `
 
 const scraped = (): CompleteStudentData => ({
   data: { dashboard: DASHBOARD, attendance: {}, cie: {}, exams: "<p>8.52</p>" },
-  timings: { method: "http", loginMs: 1, pinMs: 1, fetchMs: { p50: 1, max: 1, total: 1 }, requestCount: 2, bytesDownloaded: 10 },
+  timings: { method: "browserless", browserMs: 0, loginMs: 1, pinMs: 1, fetchMs: { p50: 1, max: 1, total: 1 }, requestCount: 2, bytesDownloaded: 10 },
 });
 
 beforeEach(() => {
@@ -30,10 +30,10 @@ describe("loginWithoutDatabase", () => {
   it("logs in to the portal once and returns the full record without a PIN", async () => {
     portal.mockResolvedValue(scraped());
 
-    const student = await loginWithoutDatabase({ usn: "1MS23IS051", dob: "19-11-2004", authType: "mother", pin: "1234" });
+    const student = await loginWithoutDatabase({ usn: "1MS23IS051", dob: "19-11-2004", authType: "mother", pin: "1234", browserlessToken: "tok" });
 
     expect(portal).toHaveBeenCalledTimes(1);
-    expect(portal).toHaveBeenCalledWith("1MS23IS051", "19", "11", "2004", "Mother's Mobile", "1234", "full", undefined);
+    expect(portal).toHaveBeenCalledWith("1MS23IS051", "19", "11", "2004", "Mother's Mobile", "1234", "tok", "full", undefined);
     // The year comes from the USN's batch (not the page's "SEM 06"), so it follows the academic year.
     expect(student).toMatchObject({ usn: "1MS23IS051", name: "Asha Rao", dob: "19-11-2004", authType: "Mother's Mobile", cgpa: "8.52", currentYear: currentYearFromUsn("1MS23IS051") });
     expect(student.details.subjects).toHaveLength(1);
@@ -47,7 +47,7 @@ describe("loginWithoutDatabase", () => {
       <h3>Asha Rao</h3>${DASHBOARD.slice(DASHBOARD.indexOf("<table"))}`;
     portal.mockResolvedValue({ ...scraped(), data: { ...scraped().data, dashboard: newLayout } });
 
-    const student = await loginWithoutDatabase({ usn: "1MS23IS051", dob: "19-11-2004", authType: "mother", pin: "1234" });
+    const student = await loginWithoutDatabase({ usn: "1MS23IS051", dob: "19-11-2004", authType: "mother", pin: "1234", browserlessToken: "tok" });
 
     expect(student.details.usn).toBe("1MS23IS051");
     expect(student.currentYear).toBe(currentYearFromUsn("1MS23IS051"));
@@ -57,7 +57,7 @@ describe("loginWithoutDatabase", () => {
   it("propagates a portal rejection so the route can report it", async () => {
     portal.mockRejectedValue(new PortalAuthError());
 
-    await expect(loginWithoutDatabase({ usn: "1MS23IS051", dob: "19-11-2004", authType: "ABC ID", pin: "0000" })).rejects.toBeInstanceOf(
+    await expect(loginWithoutDatabase({ usn: "1MS23IS051", dob: "19-11-2004", authType: "ABC ID", pin: "0000", browserlessToken: "tok" })).rejects.toBeInstanceOf(
       PortalAuthError,
     );
   });

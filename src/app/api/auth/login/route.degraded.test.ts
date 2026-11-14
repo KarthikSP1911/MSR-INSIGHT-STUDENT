@@ -43,7 +43,7 @@ const login = (body: Record<string, unknown>) =>
     }),
   );
 
-const withPin = { usn: USN, dob: "19-11-2004", authType: "Mother's Mobile", last4Digits: "1234", rememberMe: true };
+const withPin = { usn: USN, dob: "19-11-2004", authType: "Mother's Mobile", last4Digits: "1234", browserlessToken: "bl-token", rememberMe: true };
 
 beforeEach(() => {
   database.mockReset();
@@ -77,7 +77,7 @@ describe("POST /api/auth/login while the database is unreachable", () => {
 
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ success: true, degraded: true, data: { usn: USN, jobId: null, student } });
-    expect(degraded).toHaveBeenCalledWith({ usn: USN, dob: "19-11-2004", authType: "Mother's Mobile", pin: "1234" });
+    expect(degraded).toHaveBeenCalledWith({ usn: USN, dob: "19-11-2004", authType: "Mother's Mobile", pin: "1234", browserlessToken: "bl-token" });
     expect(cookie).toHaveBeenCalledWith("test-token", true);
     expect(insert).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();

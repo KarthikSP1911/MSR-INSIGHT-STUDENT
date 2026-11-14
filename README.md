@@ -9,8 +9,8 @@ Students log in with **USN + Date of Birth**, plus a one-time secondary-auth ste
 mobile or ABC ID + the portal's 4-digit PIN) the first time their account is synced. Once
 verified, the dashboard shows their academic data — current-semester performance, exam
 history, notes/PYQ resource links, and a what-if grade/attendance simulator — all scraped from
-the college's parent portal (`https://parents.msrit.edu/newparents/`) with plain HTTP requests
-(no browser, no third-party scraping service) and stored on the student's row: the current
+the college's parent portal (`https://parents.msrit.edu/newparents/`) — logged in through a remote
+Browserless.io browser on the student's own token, then fetched with plain HTTP — and stored on the student's row: the current
 semester in a `details` JSONB blob, exam results in their own columns.
 
 ## Table of contents
@@ -80,8 +80,11 @@ semester in a `details` JSONB blob, exam results in their own columns.
      marks the job `success` or `failed`.
   3. The frontend polls `GET /api/scrape-jobs/[id]` every ~2s until the job succeeds or fails
      (see `useScrapeJobPolling`), with retry-on-blip and a 6-minute client-side backstop.
-- **Plain-HTTP portal login** (`src/lib/scraper/portalHttpClient.ts`) — replays the portal's
-  two-step login form (USN + DOB, then the PIN) with `fetch` and a small cookie jar. The per-session
+- **Browserless portal login** (`src/lib/scraper/browserlessClient.ts`) — drives the portal's two-step
+  login (USN + DOB, then the PIN) in a remote Chromium on Browserless.io, using the student's own
+  token, and hands back the dashboard HTML and session cookie. The older plain-HTTP login
+  (`portalHttpClient.ts`, which also owns the shared portal error classes) is kept but no longer used.
+  It replayed the form with `fetch` and a small cookie jar. The per-session
   CSRF field is discovered from the page; the invisible reCAPTCHA token is not verified by the
   portal, so none is sent. If the portal changes its login page the client throws
   `PortalLoginUnsupportedError` and the job fails with a clear message.
@@ -105,7 +108,7 @@ it produces match the original.
 | Animation | Framer Motion |
 | ORM / DB | Drizzle ORM over Neon Postgres (`@neondatabase/serverless` HTTP driver) |
 | Auth | `jose` (JWT), httpOnly cookie session, AES-256-GCM PIN encryption at rest |
-| Scraping | Plain HTTP (`fetch` + `axios`) and Cheerio — no browser, no third-party scraping service |
+| Scraping | Remote Chromium on Browserless.io (`puppeteer-core`) for the login only, then `axios` and Cheerio |
 | Validation | Zod |
 | Tooling | ESLint 9, Vitest (+ in-memory Postgres via pglite for DB tests), Lefthook (git hooks), Commitlint (Conventional Commits) |
 | Observability | Vercel Analytics + Speed Insights |
@@ -327,9 +330,11 @@ the wording is the `COPY` constant at the top of that file).
 - **Scraping is asynchronous**: MSR-Insight scrapes synchronously inside the login/update
   request. Here, a session is minted immediately and the scrape runs in the background via
   the job queue — the dashboard shows a "syncing" state (via `useScrapeJobPolling`).
-- **Plain-HTTP scraping**: MSR-Insight drives a shared Puppeteer process with a
-  locally-managed Chromium. Here the portal login is replayed with plain HTTP requests, so there
-  is no browser to run and no per-student scraping token.
+- **Remote-browser login**: MSR-Insight drives a shared Puppeteer process with a
+  locally-managed Chromium. Here every student supplies their own Browserless.io token (stored
+  AES-256-GCM encrypted, never sent to the client), and the login runs in that remote browser, so
+  nothing is installed on Vercel. A token Browserless rejects is flagged invalid and the student is
+  asked for a new one at their next login.
 - **The encrypted PIN is never sent to the client.** MSR-Insight's
   `/api/auth/profile` returns the encrypted PIN as-is; the equivalent route here strips it
   before responding.
@@ -341,13 +346,14 @@ the wording is the `COPY` constant at the top of that file).
 See **`DEPLOYMENT.md`** for the full walkthrough. Short version:
 
 - **Vercel (free/Hobby tier), single service** — the entire app including the scrape runner.
-  Set `DATABASE_URL`, `JWT_SECRET`, and `ENCRYPTION_SECRET` as project env vars. No browser,
-  no scraping-service token, no second host.
+  Set `DATABASE_URL`, `JWT_SECRET`, and `ENCRYPTION_SECRET` as project env vars. No browser to
+  host and no second host; each student brings their own Browserless.io token.
 - Scraping routes (`login`, `report/update`, `report/student`) have `maxDuration = 60`, and each
   job stops itself after 45 seconds. If a scrape fails or times out the job is marked `failed`
   and the student can retry with the refresh buttons.
-- Apply the new migrations (`npm run db:migrate`) before deploying; `0008` permanently drops the
-  old Browserless token columns. Details in `DEPLOYMENT.md`.
+- Apply the new migrations (`npm run db:migrate`) before deploying; `0008` dropped the old
+  Browserless token columns and `0014` adds them back (empty, so every student enters a token again
+  at their next login). Details in `DEPLOYMENT.md`.
 
 ## Git workflow
 
