@@ -28,7 +28,7 @@ export interface VerifyPortalLoginInput {
 export async function verifyPortalLogin({ usn, dob, authType, pin, browserlessToken }: VerifyPortalLoginInput): Promise<PortalVerification> {
   try {
     const { day, month, year } = parseDobParts(dob);
-    await loginToPortalWithBrowserless({ usn, day, month, year, authType, pin }, browserlessToken, { deadlineMs: 20_000 });
+    await loginToPortalWithBrowserless({ usn, day, month, year, authType, pin }, browserlessToken, { deadlineMs: 40_000 });
     return { ok: true };
   } catch (err) {
     if (err instanceof BrowserlessTokenInvalidError) {
