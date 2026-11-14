@@ -3,6 +3,7 @@ import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { normalizeAuthType } from "@/lib/auth/authType";
 import {
   assertPortalAccessAllowed,
+  BROWSER_USER_AGENT,
   LOGIN_ERROR_TEXT_RE,
   PORTAL_BASE_URL,
   PortalAuthError,
@@ -41,13 +42,6 @@ export function buildBrowserlessEndpoint(token: string): string {
 
 /** The login and dashboard HTML is all that is parsed, so none of the page chrome needs to load. */
 const BLOCKED_RESOURCE_TYPES = new Set(["image", "stylesheet", "font", "media"]);
-
-/**
- * The portal answers Browserless's default `HeadlessChrome` browser with a 403 ("This portal cannot be used
- * from third-party apps"), so the page presents as an ordinary desktop Chrome.
- */
-const BROWSER_USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
 const NAV_TIMEOUT_MS = 30_000;
 const DEFAULT_LOGIN_DEADLINE_MS = 40_000;

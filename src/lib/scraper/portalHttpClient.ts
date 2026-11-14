@@ -15,7 +15,14 @@ import { isSiteShutdown, SITE_SHUTDOWN_MESSAGE } from "@/lib/siteShutdown";
 
 export const PORTAL_BASE_URL = "https://parents.msrit.edu/newparents/";
 const PORTAL_ORIGIN = "https://parents.msrit.edu";
-const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
+/**
+ * Every request to the portal, from the remote browser or from plain HTTP, presents as this ordinary desktop
+ * Chrome. The portal refuses anything that doesn't look like Chrome or Safari ("cannot be used from third-party
+ * apps"), and a bare "Mozilla/5.0 (Windows NT ...)" string is one of those.
+ */
+export const BROWSER_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+const USER_AGENT = BROWSER_USER_AGENT;
 
 /**
  * Per-attempt cap; the overall login is also bounded by `deadlineMs`. The portal answers in well under a
