@@ -6,7 +6,7 @@ import type { ScrapeJobScope } from "@/lib/db/schema";
 import { mapWithConcurrency } from "./concurrency";
 import { extractCourseRowsFromDashboard, type CourseRow } from "./htmlParser";
 import { loginToPortalWithBrowserless } from "./browserlessClient";
-import { PortalUnavailableError } from "./portalHttpClient";
+import { BROWSER_USER_AGENT, PortalUnavailableError } from "./portalHttpClient";
 
 /**
  * Pulls the raw HTML needed to build a student's `details` record from the college parent portal
@@ -152,7 +152,7 @@ async function buildResultFromDashboard(
   const axiosInstance = axios.create({
     timeout: SUBPAGE_TIMEOUT_MS,
     headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+      "User-Agent": BROWSER_USER_AGENT,
       Cookie: cookieString,
     },
     httpsAgent: keepAliveAgent,
