@@ -111,7 +111,7 @@ async function selectDob(page: Page, day: string, month: string, year: string): 
 
 async function clickAndSettle(page: Page, selector: string): Promise<void> {
   await Promise.all([
-    page.waitForNavigation({ waitUntil: "networkidle2", timeout: NAV_TIMEOUT_MS }).catch(() => {}),
+    page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS }).catch(() => {}),
     page.evaluate((sel: string) => {
       document.querySelector<HTMLElement>(sel)?.click();
     }, selector),
