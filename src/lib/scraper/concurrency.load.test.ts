@@ -8,7 +8,7 @@ import { scrapeJobs, students } from "@/lib/db/schema";
 import { enqueueScrapeJob } from "@/lib/scrapeJobs";
 import { createTestDb } from "@/test/pgliteDb";
 import { mapWithConcurrency } from "./concurrency";
-import { loginToPortal } from "./portalHttpClient";
+import { loginToPortalWithBrowserless } from "./browserlessClient";
 import { claimAndRunJob } from "./runJob";
 import { scrapeAndSyncStudent } from "./scrapeAndSync";
 import { runJobAfterResponse } from "./scheduleJob";
@@ -30,17 +30,17 @@ vi.mock("@/lib/auth/jwt", () => ({ signStudentToken: vi.fn(async () => "test-tok
 vi.mock("@/lib/auth/session", () => ({ getCurrentUsn: vi.fn() }));
 vi.mock("./scheduleJob", () => ({ runJobAfterResponse: vi.fn() }));
 vi.mock("./scrapeAndSync", () => ({ scrapeAndSyncStudent: vi.fn() }));
-vi.mock("./portalHttpClient", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./portalHttpClient")>()),
-  loginToPortal: vi.fn(),
+vi.mock("./browserlessClient", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./browserlessClient")>()),
+  loginToPortalWithBrowserless: vi.fn(),
 }));
 
-const portal = vi.mocked(loginToPortal);
+const portal = vi.mocked(loginToPortalWithBrowserless);
 const scrape = vi.mocked(scrapeAndSyncStudent);
 const schedule = vi.mocked(runJobAfterResponse);
 const sessionUsn = vi.mocked(getCurrentUsn);
 
-const timings = { method: "http" as const, loginMs: 1, pinMs: 2, fetchMs: { p50: 1, max: 2, total: 3 }, requestCount: 4, bytesDownloaded: 5, parseMs: 6, dbMs: 7 };
+const timings = { method: "browserless" as const, browserMs: 1, loginMs: 1, pinMs: 2, fetchMs: { p50: 1, max: 2, total: 3 }, requestCount: 4, bytesDownloaded: 5, parseMs: 6, dbMs: 7 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const usnFor = (i: number) => `1MS23IS${String(i).padStart(3, "0")}`;
 
@@ -83,7 +83,7 @@ describe("enqueueScrapeJob under concurrency", () => {
 
     const ids = await Promise.all(
       Array.from({ length: 50 }, () =>
-        enqueueScrapeJob(db, { usn: usnFor(1), dob: "19-11-2004", authType: "ABC ID", plainPin: "1234", trigger: "login" }),
+        enqueueScrapeJob(db, { usn: usnFor(1), dob: "19-11-2004", authType: "ABC ID", plainPin: "1234", plainBrowserlessToken: "bl-token", trigger: "login" }),
       ),
     );
 
@@ -96,7 +96,7 @@ describe("enqueueScrapeJob under concurrency", () => {
 
     const ids = await Promise.all(
       Array.from({ length: 200 }, (_, i) =>
-        enqueueScrapeJob(db, { usn: usnFor(i), dob: "19-11-2004", authType: "ABC ID", plainPin: "1234", trigger: "login" }),
+        enqueueScrapeJob(db, { usn: usnFor(i), dob: "19-11-2004", authType: "ABC ID", plainPin: "1234", plainBrowserlessToken: "bl-token", trigger: "login" }),
       ),
     );
 
@@ -112,7 +112,7 @@ describe("claimAndRunJob under concurrency", () => {
       await sleep(20);
       return { subjectsCount: 6, examHistoryCount: 0, timings };
     });
-    const id = await enqueueScrapeJob(db, { usn: usnFor(1), dob: "19-11-2004", authType: "ABC ID", plainPin: "1234", trigger: "login" });
+    const id = await enqueueScrapeJob(db, { usn: usnFor(1), dob: "19-11-2004", authType: "ABC ID", plainPin: "1234", plainBrowserlessToken: "bl-token", trigger: "login" });
 
     await Promise.all(Array.from({ length: 25 }, () => claimAndRunJob(db, id)));
 
@@ -131,7 +131,7 @@ describe("claimAndRunJob under concurrency", () => {
 
     const ids = await Promise.all(
       Array.from({ length: N }, (_, i) =>
-        enqueueScrapeJob(db, { usn: usnFor(i), dob: "19-11-2004", authType: "ABC ID", plainPin: "1234", trigger: "login" }),
+        enqueueScrapeJob(db, { usn: usnFor(i), dob: "19-11-2004", authType: "ABC ID", plainPin: "1234", plainBrowserlessToken: "bl-token", trigger: "login" }),
       ),
     );
     await Promise.all(ids.map((id) => claimAndRunJob(db, id)));
@@ -150,6 +150,7 @@ describe("POST /api/report/update under concurrency", () => {
       dob: "19-11-2004",
       authType: "Mother's Mobile",
       encryptedPin: encryptText("1234"),
+      encryptedBrowserlessToken: encryptText("bl-token"),
     });
     sessionUsn.mockResolvedValue(usnFor(1));
 
@@ -177,6 +178,7 @@ describe("POST /api/report/update under concurrency", () => {
       dob: "19-11-2004",
       authType: "Mother's Mobile",
       encryptedPin: encryptText("1234"),
+      encryptedBrowserlessToken: encryptText("bl-token"),
     });
     sessionUsn.mockResolvedValue(usnFor(1));
     const post = (scope: string) =>
@@ -202,6 +204,7 @@ describe("POST /api/report/update under concurrency", () => {
       dob: "19-11-2004",
       authType: "Mother's Mobile",
       encryptedPin: encryptText("1234"),
+      encryptedBrowserlessToken: encryptText("bl-token"),
     });
     sessionUsn.mockResolvedValue(usnFor(1));
     const post = (scope: string) =>
@@ -224,7 +227,7 @@ describe("POST /api/report/update under concurrency", () => {
 });
 
 describe("POST /api/auth/login under concurrency", () => {
-  const firstTime = { usn: usnFor(7), dob: "19-11-2004", authType: "Mother's Mobile", last4Digits: "1234" };
+  const firstTime = { usn: usnFor(7), dob: "19-11-2004", authType: "Mother's Mobile", last4Digits: "1234", browserlessToken: "bl-token" };
   const login = () =>
     loginRoute(
       new NextRequest("http://localhost:3000/api/auth/login", {
@@ -237,7 +240,7 @@ describe("POST /api/auth/login under concurrency", () => {
   it("the same new student logging in from 5 tabs/devices at once never gets an error", async () => {
     portal.mockImplementation(async () => {
       await sleep(5);
-      return { dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1 };
+      return { dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1, browserMs: 1 };
     });
     vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -251,7 +254,7 @@ describe("POST /api/auth/login under concurrency", () => {
   it("100 different new students logging in at once all succeed", async () => {
     portal.mockImplementation(async () => {
       await sleep(Math.random() * 10);
-      return { dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1 };
+      return { dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1, browserMs: 1 };
     });
     const loginAs = (i: number) =>
       loginRoute(

@@ -34,6 +34,7 @@ export async function scrapeStudentUpdate(
   dob: string,
   authType: string,
   plainPin: string,
+  browserlessToken: string,
   scope: ScrapeJobScope = "full",
   onProgress?: (msg: string) => Promise<void>,
 ): Promise<ScrapedStudentUpdate> {
@@ -46,6 +47,7 @@ export async function scrapeStudentUpdate(
     year,
     authType,
     plainPin,
+    browserlessToken,
     scope,
     onProgress,
   );
@@ -99,6 +101,8 @@ export async function scrapeAndSyncStudent(
   dob: string,
   authType: string,
   plainPin: string,
+  /** Decrypted per-student Browserless.io token, passed through to the portal login. */
+  browserlessToken: string,
   scope: ScrapeJobScope = "full",
   onProgress?: (msg: string) => Promise<void>,
 ): Promise<ScrapeAndSyncResult> {
@@ -107,6 +111,7 @@ export async function scrapeAndSyncStudent(
     dob,
     authType,
     plainPin,
+    browserlessToken,
     scope,
     onProgress,
   );

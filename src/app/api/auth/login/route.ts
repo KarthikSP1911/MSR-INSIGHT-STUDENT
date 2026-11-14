@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { currentYearFromUsn } from "@/lib/academicYear";
 import { normalizeAuthType } from "@/lib/auth/authType";
-import { decryptText } from "@/lib/auth/crypto";
+import { decryptText, encryptText } from "@/lib/auth/crypto";
 import { setSessionCookie } from "@/lib/auth/cookies";
 import { signStudentToken } from "@/lib/auth/jwt";
 import { verifyPortalLogin } from "@/lib/auth/verifyPortalLogin";
@@ -31,28 +31,30 @@ interface DegradedLoginRequest {
   dob: string;
   authType?: string;
   last4Digits?: string;
+  browserlessToken?: string;
   rememberMe?: boolean;
 }
 
 /**
  * Sign-in while our database is unreachable. The portal proves the USN, date of birth and PIN and supplies the
- * data, so the PIN has to be typed every time (the saved copy is in the database) and nothing is stored.
+ * data, so the PIN and Browserless token have to be typed every time (the saved copies are in the database) and
+ * nothing is stored.
  */
-async function loginWhileDatabaseIsDown({ usn, dob, authType, last4Digits, rememberMe }: DegradedLoginRequest) {
-  if (!authType || !last4Digits) {
+async function loginWhileDatabaseIsDown({ usn, dob, authType, last4Digits, browserlessToken, rememberMe }: DegradedLoginRequest) {
+  if (!authType || !last4Digits || !browserlessToken) {
     return NextResponse.json({
       success: false,
       requiresSecondaryAuth: true,
       databaseOffline: true,
       message:
-        "Our database is offline right now. Enter your portal PIN to sign in and load your data straight from the college portal.",
+        "Our database is offline right now. Enter your portal PIN and Browserless token to sign in and load your data straight from the college portal.",
     });
   }
 
   try {
     // Signed before the scrape so a missing JWT_SECRET fails fast rather than after a 45s portal round-trip.
     const token = await signStudentToken(usn);
-    const student = await loginWithoutDatabase({ usn, dob, authType, pin: last4Digits });
+    const student = await loginWithoutDatabase({ usn, dob, authType, pin: last4Digits, browserlessToken });
     await setSessionCookie(token, Boolean(rememberMe));
 
     return NextResponse.json({
@@ -64,7 +66,14 @@ async function loginWhileDatabaseIsDown({ usn, dob, authType, last4Digits, remem
   } catch (err) {
     console.error(`[api/auth/login] database-free login failed for USN ${usn}:`, err);
     const failure = describeDegradedLoginFailure(err);
-    return NextResponse.json({ success: false, message: failure.message }, { status: failure.status });
+    return NextResponse.json(
+      {
+        success: false,
+        message: failure.message,
+        ...(failure.browserlessTokenError && { requiresSecondaryAuth: true, browserlessTokenError: failure.message }),
+      },
+      { status: failure.status },
+    );
   }
 }
 
@@ -90,7 +99,7 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const { dob, authType, last4Digits, forceResync, rememberMe } = parsed.data;
+  const { dob, authType, last4Digits, browserlessToken, forceResync, rememberMe } = parsed.data;
   const usn = parsed.data.usn.toUpperCase();
 
   try {
@@ -110,10 +119,23 @@ export async function POST(request: NextRequest) {
     }
 
     const savedPin = existing?.encryptedPin ? decryptText(existing.encryptedPin) : "";
+    const savedToken = existing?.encryptedBrowserlessToken ? decryptText(existing.encryptedBrowserlessToken) : "";
+    const tokenStillValid = existing?.browserlessTokenValid !== false;
     const hasNewPinProvided = Boolean(last4Digits);
+    const hasNewTokenProvided = Boolean(browserlessToken);
 
-    // Returning student: cached scrape + a saved PIN that still decrypts + no forced re-verification.
-    if (existing && hasScrapedData(existing.details) && savedPin && existing.authType && !forceResync && !hasNewPinProvided) {
+    // Returning student: cached scrape + a saved PIN and a still-valid Browserless token that decrypt + no forced re-verification.
+    if (
+      existing &&
+      hasScrapedData(existing.details) &&
+      savedPin &&
+      existing.authType &&
+      savedToken &&
+      tokenStillValid &&
+      !forceResync &&
+      !hasNewPinProvided &&
+      !hasNewTokenProvided
+    ) {
       const token = await signStudentToken(usn);
       await setSessionCookie(token, Boolean(rememberMe));
 
@@ -127,6 +149,7 @@ export async function POST(request: NextRequest) {
             dob,
             authType: normalizeAuthType(existing.authType),
             plainPin: savedPin,
+            plainBrowserlessToken: savedToken,
             trigger: "login",
             scope,
           });
@@ -145,8 +168,19 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // The saved token was rejected by Browserless earlier: ask for a new one (the saved PIN can stay).
+    if (existing && !tokenStillValid && !hasNewTokenProvided) {
+      return NextResponse.json({
+        success: false,
+        requiresSecondaryAuth: true,
+        requiresTokenRefresh: true,
+        message: "Your Browserless API token is no longer valid. Please re-enter it to continue syncing.",
+      });
+    }
+
     const targetAuthType = authType || existing?.authType || undefined;
     const targetPin = last4Digits || savedPin;
+    const targetToken = browserlessToken || savedToken;
 
     if (!targetPin || !targetAuthType) {
       return NextResponse.json({
@@ -160,20 +194,60 @@ export async function POST(request: NextRequest) {
     // Prove the USN, date of birth and PIN with the portal itself BEFORE writing anything. A mistyped or
     // invented USN must never create a row (it used to be inserted first and only found invalid when the
     // background scrape failed, leaving junk rows behind).
-    const verification = await verifyPortalLogin({ usn, dob, authType: targetAuthType, pin: targetPin });
-    if (!verification.ok) {
-      return NextResponse.json({ success: false, message: verification.message }, { status: verification.status });
+    if (!targetToken) {
+      return NextResponse.json({
+        success: false,
+        requiresSecondaryAuth: true,
+        message: "A Browserless.io API token is required for portal scraping.",
+      });
     }
+
+    const verification = await verifyPortalLogin({
+      usn,
+      dob,
+      authType: targetAuthType,
+      pin: targetPin,
+      browserlessToken: targetToken,
+    });
+    if (!verification.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: verification.message,
+          ...(verification.browserlessTokenError && {
+            requiresSecondaryAuth: true,
+            browserlessTokenError: verification.message,
+          }),
+        },
+        { status: verification.status },
+      );
+    }
+
+    // The token just proved itself against Browserless, so it is saved (encrypted) and marked valid.
+    const encryptedToken =
+      hasNewTokenProvided || !existing?.encryptedBrowserlessToken
+        ? encryptText(targetToken)
+        : existing.encryptedBrowserlessToken;
 
     if (!existing) {
       // A second login for the same new USN (double-click, another tab) can insert first; that row is equivalent.
       // The year comes from the USN's batch, so a brand-new student is counted in the right year before any scrape.
       await db
         .insert(students)
-        .values({ usn, dob, currentYear: currentYearFromUsn(usn) ?? 0, details: {} })
+        .values({
+          usn,
+          dob,
+          currentYear: currentYearFromUsn(usn) ?? 0,
+          details: {},
+          encryptedBrowserlessToken: encryptedToken,
+          browserlessTokenValid: true,
+        })
         .onConflictDoNothing({ target: students.usn });
-    } else if (existing.dob !== dob) {
-      await db.update(students).set({ dob }).where(eq(students.usn, usn));
+    } else if (existing.dob !== dob || hasNewTokenProvided || !tokenStillValid || !existing.encryptedBrowserlessToken) {
+      await db
+        .update(students)
+        .set({ dob, encryptedBrowserlessToken: encryptedToken, browserlessTokenValid: true })
+        .where(eq(students.usn, usn));
     }
 
     // A student who deliberately re-verifies gets at least a current-semester refresh.
@@ -184,6 +258,7 @@ export async function POST(request: NextRequest) {
       dob,
       authType: normalizeAuthType(targetAuthType),
       plainPin: targetPin,
+      plainBrowserlessToken: targetToken,
       trigger: "login",
       scope,
     });
@@ -200,7 +275,7 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error(`[api/auth/login] failed for USN ${usn}:`, err);
     if (isDatabaseUnavailable(err)) {
-      return loginWhileDatabaseIsDown({ usn, dob, authType, last4Digits, rememberMe });
+      return loginWhileDatabaseIsDown({ usn, dob, authType, last4Digits, browserlessToken, rememberMe });
     }
     return NextResponse.json({ success: false, message: "Login failed. Please try again." }, { status: 500 });
   }

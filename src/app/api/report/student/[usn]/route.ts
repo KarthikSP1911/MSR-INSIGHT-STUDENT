@@ -40,7 +40,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ usn
       return NextResponse.json({ success: true, source: "database", data: toSafeStudent(student) });
     }
 
-    if (!student.dob || !student.authType || !student.encryptedPin) {
+    if (
+      !student.dob ||
+      !student.authType ||
+      !student.encryptedPin ||
+      !student.encryptedBrowserlessToken ||
+      !student.browserlessTokenValid
+    ) {
       return NextResponse.json(
         { success: false, message: "No cached data and portal verification is required." },
         { status: 400 },
@@ -52,6 +58,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ usn
       dob: student.dob,
       authType: student.authType,
       plainPin: decryptText(student.encryptedPin),
+      plainBrowserlessToken: decryptText(student.encryptedBrowserlessToken),
       trigger: "manual_update",
       scope: "full",
     });

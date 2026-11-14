@@ -99,6 +99,13 @@
       "when": 1791439203022,
       "tag": "0013_seniors_are_year_5",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794654296644,
+      "tag": "0014_restore_browserless_columns",
+      "breakpoints": true
     }
   ]
 }

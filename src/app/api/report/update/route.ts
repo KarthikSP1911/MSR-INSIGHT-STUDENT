@@ -88,11 +88,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const targetToken = student.encryptedBrowserlessToken ? decryptText(student.encryptedBrowserlessToken) : "";
+    if (!targetToken || !student.browserlessTokenValid) {
+      return NextResponse.json(
+        {
+          success: false,
+          requiresRelogin: true,
+          requiresTokenRefresh: true,
+          message:
+            "Your Browserless API token is missing or no longer valid. Please sign in again and enter a new token.",
+        },
+        { status: 401 },
+      );
+    }
+
     const jobId = await enqueueScrapeJob(db, {
       usn,
       dob: student.dob,
       authType: targetAuthType,
       plainPin: targetPin,
+      plainBrowserlessToken: targetToken,
       trigger: "manual_update",
       scope,
       strictScope: true,

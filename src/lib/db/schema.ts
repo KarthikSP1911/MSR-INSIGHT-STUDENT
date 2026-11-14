@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -33,6 +34,9 @@ export const students = pgTable("students", {
   currentYear: integer("current_year").notNull().default(0),
   authType: text("auth_type"), // "Father's Mobile" | "Mother's Mobile" | "ABC ID"
   encryptedPin: text("encrypted_pin"), // AES-256-GCM "iv:authTag:cipher" hex
+  encryptedBrowserlessToken: text("encrypted_browserless_token"), // the student's own Browserless.io token, same encryption
+  /** False once Browserless rejected the saved token; the next login asks for a fresh one. */
+  browserlessTokenValid: boolean("browserless_token_valid").notNull().default(true),
   details: jsonb("details").$type<StudentDetails>().notNull().default({}),
   examHistory: jsonb("exam_history").$type<ExamHistoryEntry[]>().notNull().default([]),
   cgpa: text("cgpa"),
@@ -79,6 +83,7 @@ export const scrapeJobs = pgTable(
     dob: text("dob").notNull(),
     authType: text("auth_type"),
     encryptedPin: text("encrypted_pin"),
+    encryptedBrowserlessToken: text("encrypted_browserless_token"),
     trigger: text("trigger").notNull().$type<ScrapeJobTrigger>(),
     scope: text("scope").notNull().$type<ScrapeJobScope>().default("full"),
     status: text("status").notNull().$type<ScrapeJobStatus>().default("pending"),

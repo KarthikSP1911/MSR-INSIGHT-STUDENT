@@ -247,6 +247,9 @@ export default function StudentDashboard() {
         void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
           router.push(`/student-login?error=${encodeURIComponent(jobError || "We couldn't verify your details. Please try again.")}`);
         });
+      } else if (jobError === "browserless_token_invalid") {
+        // Browserless rejected the saved token: send them to re-enter it (their PIN is still saved).
+        router.push("/student-login?relogin=1&tokenRefresh=1");
       } else {
         setUpdateStatus("error");
         setUpdateError(jobError);
@@ -467,7 +470,7 @@ export default function StudentDashboard() {
         // No saved portal PIN to sync with — send them to the login page's own secondary-auth
         // flow (same UI as first-time login) rather than asking for it again here.
         setUpdateStatus(null);
-        router.push("/student-login?relogin=1");
+        router.push(body.requiresTokenRefresh ? "/student-login?relogin=1&tokenRefresh=1" : "/student-login?relogin=1");
         return;
       }
       if (!response.ok || !body.success) {

@@ -67,7 +67,7 @@ export class PortalUnavailableError extends Error {
  * a login), so the shutdown cannot be bypassed by a route that forgets to check. Reported as "unsupported" so
  * existing callers answer 503 instead of blaming the student's credentials or retrying.
  */
-function assertPortalAccessAllowed(): void {
+export function assertPortalAccessAllowed(): void {
   if (isSiteShutdown()) throw new PortalLoginUnsupportedError(SITE_SHUTDOWN_MESSAGE);
 }
 

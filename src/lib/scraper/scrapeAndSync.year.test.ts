@@ -24,7 +24,7 @@ const dashboard = (classLine: string) => `
 
 const result = (html: string): CompleteStudentData => ({
   data: { dashboard: html, attendance: {}, cie: {}, exams: "<p>8.52</p>" },
-  timings: { method: "http", loginMs: 1, pinMs: 1, fetchMs: { p50: 1, max: 1, total: 1 }, requestCount: 2, bytesDownloaded: 10 },
+  timings: { method: "browserless", browserMs: 0, loginMs: 1, pinMs: 1, fetchMs: { p50: 1, max: 1, total: 1 }, requestCount: 2, bytesDownloaded: 10 },
 });
 
 let db: Db;
@@ -45,7 +45,7 @@ afterEach(() => {
 });
 
 const sync = (usn: string, scope: "current" | "exam_history" | "full" = "full") =>
-  scrapeAndSyncStudent(db, usn, "19-11-2004", "Mother's Mobile", "1234", scope);
+  scrapeAndSyncStudent(db, usn, "19-11-2004", "Mother's Mobile", "1234", "bl-token", scope);
 
 const rowOf = async (usn: string) => (await db.select().from(students).where(eq(students.usn, usn)))[0];
 

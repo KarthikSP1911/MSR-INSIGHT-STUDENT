@@ -15,8 +15,7 @@ describe("migrations", () => {
     );
     const columns = rows.map((r) => r.column_name);
     expect(columns).toEqual(expect.arrayContaining(["exam_history", "cgpa", "exam_history_updated_at"]));
-    expect(columns).not.toContain("encrypted_browserless_token");
-    expect(columns).not.toContain("browserless_token_valid");
+    expect(columns).toEqual(expect.arrayContaining(["encrypted_browserless_token", "browserless_token_valid"]));
   });
 
   it("includes the exam history split", () => {

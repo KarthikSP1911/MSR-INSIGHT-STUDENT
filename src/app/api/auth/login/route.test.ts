@@ -6,7 +6,8 @@ import { currentYearFromUsn } from "@/lib/academicYear";
 import { decryptText, encryptText } from "@/lib/auth/crypto";
 import type { Db } from "@/lib/db/client";
 import { scrapeJobs, students } from "@/lib/db/schema";
-import { loginToPortal, PortalAuthError, PortalLoginUnsupportedError } from "@/lib/scraper/portalHttpClient";
+import { BrowserlessTokenInvalidError, loginToPortalWithBrowserless } from "@/lib/scraper/browserlessClient";
+import { PortalAuthError, PortalLoginUnsupportedError } from "@/lib/scraper/portalHttpClient";
 import { runJobAfterResponse } from "@/lib/scraper/scheduleJob";
 import { createTestDb } from "@/test/pgliteDb";
 import { POST } from "./route";
@@ -17,12 +18,12 @@ vi.mock("@/lib/db/client", () => ({ getDb: () => db }));
 vi.mock("@/lib/auth/cookies", () => ({ setSessionCookie: vi.fn() }));
 vi.mock("@/lib/auth/jwt", () => ({ signStudentToken: vi.fn(async () => "test-token") }));
 vi.mock("@/lib/scraper/scheduleJob", () => ({ runJobAfterResponse: vi.fn() }));
-vi.mock("@/lib/scraper/portalHttpClient", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/scraper/portalHttpClient")>()),
-  loginToPortal: vi.fn(),
+vi.mock("@/lib/scraper/browserlessClient", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/scraper/browserlessClient")>()),
+  loginToPortalWithBrowserless: vi.fn(),
 }));
 
-const portal = vi.mocked(loginToPortal);
+const portal = vi.mocked(loginToPortalWithBrowserless);
 const schedule = vi.mocked(runJobAfterResponse);
 
 const USN = "1MS23IS051";
@@ -35,7 +36,7 @@ const login = (body: Record<string, unknown>) =>
     }),
   );
 
-const firstTime = { usn: USN, dob: "19-11-2004", authType: "Mother's Mobile", last4Digits: "1234" };
+const firstTime = { usn: USN, dob: "19-11-2004", authType: "Mother's Mobile", last4Digits: "1234", browserlessToken: "bl-token" };
 
 const rowCounts = async () => ({
   students: (await db.select().from(students)).length,
@@ -125,7 +126,7 @@ describe("POST /api/auth/login: nothing is stored for details that aren't valid"
 
 describe("POST /api/auth/login: verified students", () => {
   it("verifies with the portal first, then creates the student and queues the first sync", async () => {
-    portal.mockResolvedValue({ dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1 });
+    portal.mockResolvedValue({ dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1, browserMs: 1 });
 
     const res = await login({ ...firstTime, usn: USN.toLowerCase() });
     const body = await res.json();
@@ -134,6 +135,7 @@ describe("POST /api/auth/login: verified students", () => {
     expect(body.success).toBe(true);
     expect(portal).toHaveBeenCalledWith(
       expect.objectContaining({ usn: USN, day: "19", month: "11", year: "2004", authType: "Mother's Mobile", pin: "1234" }),
+      "bl-token",
       expect.anything(),
     );
 
@@ -142,11 +144,14 @@ describe("POST /api/auth/login: verified students", () => {
     const [job] = await db.select().from(scrapeJobs);
     expect(job).toMatchObject({ usn: USN, scope: "full", trigger: "login" });
     expect(decryptText(job.encryptedPin!)).toBe("1234");
+    expect(decryptText(job.encryptedBrowserlessToken!)).toBe("bl-token");
+    expect(decryptText(student.encryptedBrowserlessToken!)).toBe("bl-token");
+    expect(student.browserlessTokenValid).toBe(true);
     expect(schedule).toHaveBeenCalledWith(db, job.id);
   });
 
   it("creates the new student already in the year their USN's batch implies, before any scrape", async () => {
-    portal.mockResolvedValue({ dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1 });
+    portal.mockResolvedValue({ dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1, browserMs: 1 });
 
     await login(firstTime);
 
@@ -156,12 +161,12 @@ describe("POST /api/auth/login: verified students", () => {
   });
 
   it("accepts a first-year temporary USN and keeps it as its own student", async () => {
-    portal.mockResolvedValue({ dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1 });
+    portal.mockResolvedValue({ dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1, browserMs: 1 });
 
     const res = await login({ ...firstTime, usn: "1ms23is051-t" });
 
     expect(res.status).toBe(200);
-    expect(portal).toHaveBeenCalledWith(expect.objectContaining({ usn: "1MS23IS051-T" }), expect.anything());
+    expect(portal).toHaveBeenCalledWith(expect.objectContaining({ usn: "1MS23IS051-T" }), "bl-token", expect.anything());
     const [student] = await db.select().from(students);
     expect(student.usn).toBe("1MS23IS051-T");
     const [job] = await db.select().from(scrapeJobs);
@@ -171,7 +176,7 @@ describe("POST /api/auth/login: verified students", () => {
   it("lets the same new student log in from several tabs at once without a failure", async () => {
     portal.mockImplementation(async () => {
       await new Promise((r) => setTimeout(r, 5));
-      return { dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1 };
+      return { dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1, browserMs: 1 };
     });
 
     const responses = await Promise.all([login(firstTime), login(firstTime), login(firstTime)]);
@@ -187,6 +192,7 @@ describe("POST /api/auth/login: verified students", () => {
       dob: "19-11-2004",
       authType: "Mother's Mobile",
       encryptedPin: encryptText("1234"),
+      encryptedBrowserlessToken: encryptText("bl-token"),
       details: { last_updated: fresh, subjects: [{ code: "A", name: "A", marks: 0, attendance: 0, attendance_details: {} as never, assessments: [] }] },
       examHistoryUpdatedAt: new Date(),
     });
@@ -196,5 +202,64 @@ describe("POST /api/auth/login: verified students", () => {
     expect((await res.json()).success).toBe(true);
     expect(portal).not.toHaveBeenCalled();
     expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Browserless token that can't connect, flags it inline and stores nothing", async () => {
+    portal.mockRejectedValue(new BrowserlessTokenInvalidError());
+
+    const res = await login(firstTime);
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body).toMatchObject({ success: false, requiresSecondaryAuth: true });
+    expect(body.browserlessTokenError).toMatch(/Browserless/);
+    expect(await rowCounts()).toEqual({ students: 0, jobs: 0 });
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it("asks for the Browserless token when a first-time login doesn't include one", async () => {
+    const res = await login({ ...firstTime, browserlessToken: undefined });
+
+    expect((await res.json()).requiresSecondaryAuth).toBe(true);
+    expect(portal).not.toHaveBeenCalled();
+    expect(await rowCounts()).toEqual({ students: 0, jobs: 0 });
+  });
+
+  it("asks only for a new token when the saved one was rejected earlier", async () => {
+    await db.insert(students).values({
+      usn: USN,
+      dob: "19-11-2004",
+      authType: "Mother's Mobile",
+      encryptedPin: encryptText("1234"),
+      encryptedBrowserlessToken: encryptText("old-token"),
+      browserlessTokenValid: false,
+      details: { last_updated: new Date().toISOString(), subjects: [{ code: "A", name: "A", marks: 0, attendance: 0, attendance_details: {} as never, assessments: [] }] },
+    });
+
+    const body = await (await login({ usn: USN, dob: "19-11-2004" })).json();
+
+    expect(body).toMatchObject({ success: false, requiresSecondaryAuth: true, requiresTokenRefresh: true });
+    expect(portal).not.toHaveBeenCalled();
+  });
+
+  it("saves a replacement token for a returning student, verified with the saved PIN, and marks it valid", async () => {
+    await db.insert(students).values({
+      usn: USN,
+      dob: "19-11-2004",
+      authType: "Mother's Mobile",
+      encryptedPin: encryptText("1234"),
+      encryptedBrowserlessToken: encryptText("old-token"),
+      browserlessTokenValid: false,
+      details: { last_updated: new Date().toISOString(), subjects: [{ code: "A", name: "A", marks: 0, attendance: 0, attendance_details: {} as never, assessments: [] }] },
+    });
+    portal.mockResolvedValue({ dashboardHtml: "", cookieString: "", requestCount: 3, loginMs: 1, pinMs: 1, browserMs: 1 });
+
+    const res = await login({ usn: USN, dob: "19-11-2004", browserlessToken: "new-token" });
+
+    expect(res.status).toBe(200);
+    expect(portal).toHaveBeenCalledWith(expect.objectContaining({ pin: "1234" }), "new-token", expect.anything());
+    const [row] = await db.select().from(students).where(eq(students.usn, USN));
+    expect(decryptText(row.encryptedBrowserlessToken!)).toBe("new-token");
+    expect(row.browserlessTokenValid).toBe(true);
   });
 });

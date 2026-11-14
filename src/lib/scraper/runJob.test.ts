@@ -12,6 +12,7 @@ import {
   STALE_JOB_MS,
 } from "@/lib/scrapeJobs";
 import { createTestDb } from "@/test/pgliteDb";
+import { BrowserlessTokenInvalidError } from "./browserlessClient";
 import { PortalAuthError, PortalUnavailableError } from "./portalHttpClient";
 import { claimAndRunJob } from "./runJob";
 import { scrapeAndSyncStudent } from "./scrapeAndSync";
@@ -19,7 +20,7 @@ import { scrapeAndSyncStudent } from "./scrapeAndSync";
 vi.mock("./scrapeAndSync", () => ({ scrapeAndSyncStudent: vi.fn() }));
 const scrape = vi.mocked(scrapeAndSyncStudent);
 
-const timings = { method: "http" as const, loginMs: 1, pinMs: 2, fetchMs: { p50: 1, max: 2, total: 3 }, requestCount: 4, bytesDownloaded: 5, parseMs: 6, dbMs: 7 };
+const timings = { method: "browserless" as const, browserMs: 1, loginMs: 1, pinMs: 2, fetchMs: { p50: 1, max: 2, total: 3 }, requestCount: 4, bytesDownloaded: 5, parseMs: 6, dbMs: 7 };
 
 // One in-memory database for the file (building it runs every migration); rows are reset per test.
 let sharedDb: Db;
@@ -35,7 +36,7 @@ async function setup() {
 }
 
 const enqueue = (db: Db, scope: "current" | "exam_history" | "full" = "full") =>
-  enqueueScrapeJob(db, { usn: "1MS23IS051", dob: "19-11-2004", authType: "Mother's Mobile", plainPin: "1234", trigger: "login", scope });
+  enqueueScrapeJob(db, { usn: "1MS23IS051", dob: "19-11-2004", authType: "Mother's Mobile", plainPin: "1234", plainBrowserlessToken: "bl-token", trigger: "login", scope });
 
 const jobRow = async (db: Db, id: string) => (await db.select().from(scrapeJobs).where(eq(scrapeJobs.id, id)))[0];
 
@@ -48,6 +49,8 @@ describe("enqueueScrapeJob", () => {
     expect(row.scope).toBe("current");
     expect(row.encryptedPin).not.toContain("1234");
     expect(decryptText(row.encryptedPin)).toBe("1234");
+    expect(row.encryptedBrowserlessToken).not.toContain("bl-token");
+    expect(decryptText(row.encryptedBrowserlessToken)).toBe("bl-token");
   });
 
   it("coalesces onto the job already in flight for the same student", async () => {
@@ -158,11 +161,11 @@ describe("claimAndRunJob", () => {
 
     await claimAndRunJob(db, id);
 
-    expect(scrape).toHaveBeenCalledWith(db, "1MS23IS051", "19-11-2004", "Mother's Mobile", "1234", "exam_history", expect.any(Function));
+    expect(scrape).toHaveBeenCalledWith(db, "1MS23IS051", "19-11-2004", "Mother's Mobile", "1234", "bl-token", "exam_history", expect.any(Function));
     const row = await jobRow(db, id);
     expect(row.status).toBe("success");
     expect(row.finishedAt).not.toBeNull();
-    expect(row.resultSummary).toMatchObject({ subjectsCount: 6, examHistoryCount: 2, method: "http" });
+    expect(row.resultSummary).toMatchObject({ subjectsCount: 6, examHistoryCount: 2, method: "browserless" });
   });
 
   it("records the error message when the portal rejects the credentials", async () => {
@@ -187,6 +190,28 @@ describe("claimAndRunJob", () => {
     await claimAndRunJob(db, id);
 
     expect(await jobRow(db, id)).toMatchObject({ status: "failed", resultSummary: { failureKind: "portal_unavailable" } });
+  });
+
+  it("flags the student's saved token as invalid when Browserless rejects it, so the next login asks for a new one", async () => {
+    const db = await setup();
+    scrape.mockRejectedValue(new BrowserlessTokenInvalidError());
+    const id = await enqueue(db);
+
+    await claimAndRunJob(db, id);
+
+    expect(await jobRow(db, id)).toMatchObject({ status: "failed", error: "browserless_token_invalid" });
+    const [student] = await db.select().from(students).where(eq(students.usn, "1MS23IS051"));
+    expect(student.browserlessTokenValid).toBe(false);
+  });
+
+  it("fails a job that has no Browserless token without calling the scraper", async () => {
+    const db = await setup();
+    const id = await enqueueScrapeJob(db, { usn: "1MS23IS051", dob: "19-11-2004", authType: "Mother's Mobile", plainPin: "1234", trigger: "login" });
+
+    await claimAndRunJob(db, id);
+
+    expect(await jobRow(db, id)).toMatchObject({ status: "failed", error: expect.stringContaining("Browserless token") });
+    expect(scrape).not.toHaveBeenCalled();
   });
 
   it("marks any other failure as 'other'", async () => {

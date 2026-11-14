@@ -5,12 +5,14 @@ import https from "https";
 import type { ScrapeJobScope } from "@/lib/db/schema";
 import { mapWithConcurrency } from "./concurrency";
 import { extractCourseRowsFromDashboard, type CourseRow } from "./htmlParser";
-import { loginToPortal, PortalUnavailableError } from "./portalHttpClient";
+import { loginToPortalWithBrowserless } from "./browserlessClient";
+import { PortalUnavailableError } from "./portalHttpClient";
 
 /**
  * Pulls the raw HTML needed to build a student's `details` record from the college parent portal
- * (https://parents.msrit.edu/newparents/). Logging in is plain HTTP (see portalHttpClient.ts) — no
- * browser — so the whole scrape fits inside one Vercel serverless invocation.
+ * (https://parents.msrit.edu/newparents/). The login runs in a remote Browserless.io browser on the student's
+ * own token (see browserlessClient.ts); the pages after it are plain HTTP with the session cookie, so the whole
+ * scrape fits inside one Vercel serverless invocation.
  */
 
 export interface ScrapedData {
@@ -22,7 +24,9 @@ export interface ScrapedData {
 
 /** Per-phase timing/footprint data for `scrape_jobs.resultSummary`. */
 export interface ScrapeTimings {
-  method: "http";
+  method: "browserless";
+  /** Time to connect the remote browser and load the login page. */
+  browserMs: number;
   loginMs: number;
   pinMs: number;
   fetchMs: { p50: number; max: number; total: number };
@@ -130,6 +134,7 @@ async function buildResultFromDashboard(
   cookieString: string,
   scope: ScrapeJobScope,
   requestCountSoFar: number,
+  browserMs: number,
   loginMs: number,
   pinMs: number,
   onProgress?: (msg: string) => Promise<void>,
@@ -194,7 +199,8 @@ async function buildResultFromDashboard(
     Buffer.byteLength(dashboardHtml, "utf8") + fetched.reduce((sum, f) => sum + Buffer.byteLength(f.html, "utf8"), 0);
 
   const timings: ScrapeTimings = {
-    method: "http",
+    method: "browserless",
+    browserMs,
     loginMs,
     pinMs,
     fetchMs: {
@@ -216,17 +222,24 @@ export const getCompleteStudentData = async (
   year: string,
   authType: string,
   pin: string,
+  /** Decrypted per-student Browserless.io token: the only way a browser is obtained here. */
+  browserlessToken: string,
   /** Which parts to fetch: `current` (attendance + CIE), `exam_history`, or `full` (both). */
   scope: ScrapeJobScope = "full",
   onProgress?: (msg: string) => Promise<void>,
 ): Promise<CompleteStudentData> => {
-  const session = await loginToPortal({ usn, day, month, year, authType, pin }, { onProgress });
+  const session = await loginToPortalWithBrowserless(
+    { usn, day, month, year, authType, pin },
+    browserlessToken,
+    { onProgress },
+  );
 
   return buildResultFromDashboard(
     session.dashboardHtml,
     session.cookieString,
     scope,
     session.requestCount,
+    session.browserMs,
     session.loginMs,
     session.pinMs,
     onProgress,
