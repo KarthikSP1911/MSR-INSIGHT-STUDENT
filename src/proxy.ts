@@ -29,6 +29,11 @@ export async function proxy(request: NextRequest) {
 
   if (pathname.startsWith("/api/")) return NextResponse.next();
 
+  // Public resume link: the page then shows only synthetic data from /api/demo/profile.
+  if (pathname === "/student/dashboard" && request.nextUrl.searchParams.get("demo") === "resume") {
+    return NextResponse.next();
+  }
+
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME);
 
   // Verify the JWT to ensure it's not missing, expired, or tampered with

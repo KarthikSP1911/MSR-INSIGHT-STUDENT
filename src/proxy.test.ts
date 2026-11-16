@@ -69,6 +69,19 @@ describe("proxy", () => {
       expect(new URL(res.headers.get("location")!).pathname).toBe("/student-login");
     });
 
+    it("lets the resume demo dashboard through without a session", async () => {
+      const res = await proxy(request("/student/dashboard?demo=resume"));
+      expect(res.headers.get("x-middleware-next")).toBe("1");
+    });
+
+    it.each(["/student/dashboard?demo=other", "/student/other?demo=resume"])(
+      "still redirects %s to login without a session",
+      async (path) => {
+        const res = await proxy(request(path));
+        expect(res.status).toBe(307);
+      },
+    );
+
     it("lets dashboard pages through with a valid session", async () => {
       const token = await signStudentToken("1MS23IS051");
       const res = await proxy(request("/student/dashboard", { cookie: `student_session=${token}` }));
