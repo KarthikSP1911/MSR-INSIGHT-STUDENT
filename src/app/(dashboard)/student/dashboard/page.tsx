@@ -76,6 +76,8 @@ export default function StudentDashboard() {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const activeTab = searchParams.get("tab") || "performance";
+  // Public resume link: shows a synthetic student, never the signed-in one.
+  const isDemo = searchParams.get("demo") === "resume";
 
   const [avatarSeedSuffix, setAvatarSeedSuffix] = useState("");
   useEffect(() => {
@@ -142,6 +144,7 @@ export default function StudentDashboard() {
     refetch: refetchProfile,
   } = useQuery<ProfileResult>({
     queryKey: PROFILE_QUERY_KEY,
+    staleTime: isDemo ? Infinity : 0,
     // Only give up immediately on a definitive 401 (truly unauthenticated).
     // Allow up to 2 retries for transient 5xx / network errors so a cold-start
     // DB hiccup doesn't permanently destroy a valid "Remember Me" cookie.
@@ -164,6 +167,11 @@ export default function StudentDashboard() {
         const cached = await readCachedProfileForSession();
         return cached ? { student: cached.student, fromCache: true, savedAt: cached.savedAt } : null;
       };
+
+      if (isDemo) {
+        const demoBody = await (await fetch("/api/demo/profile")).json();
+        return { student: demoBody.data as Student, fromCache: false, savedAt: null };
+      }
 
       let response: Response;
       try {
