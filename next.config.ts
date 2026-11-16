@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      // Short, public link for the resume: opens the dashboard with synthetic demo data.
+      { source: "/try", destination: "/student/dashboard?demo=resume", permanent: false },
+    ];
+  },
   async headers() {
     return [
       {
